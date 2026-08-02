@@ -1,0 +1,9 @@
+id: plan-2026-08-dha1-datahub-agent
+title: DHA1 — DataHub Agent Hackathon Entry
+type: feature
+status: planned
+created_at: '2026-08-02T11:54:28.147019'
+skills:
+- planning-with-pm
+metadata:
+  pm_scope: story
