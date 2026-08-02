@@ -1,7 +1,8 @@
---- transactions_warehouse/schema.yaml.orig
-+++ transactions_warehouse/schema.yaml
-@@ -1,4 +1,4 @@
- fields:
+--- a/contracts/transactions_warehouse.schema.yaml
++++ b/contracts/transactions_warehouse.schema.yaml
+@@ -8,4 +8,4 @@
+   - field_path: id
+     type: bigint
    - field_path: amount
 -    type: decimal(12,2)
 +    type: int

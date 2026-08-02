@@ -43,6 +43,48 @@ probe contracts.
 
 ## What Was Just Done
 
+### Session: 2026-08-02 - Judge-path QA (branch `qa/demo-path`, PR #2)
+
+Followed `README.md` verbatim from a clean clone in a fresh Python 3.11 venv
+against a live DataHub quickstart (v1.5.0.6, mcp-server-datahub v3.4.5). The
+documented zero-to-demo path did not run. Fixed code and docs, TDD throughout.
+
+**Correction to the DHA.7 entry below:** the claim "verified on clean clone"
+was not accurate — the demo path had never been executed end to end. The
+seeder reported success while writing zero datasets, the MCP client could not
+open a session, and `python -m datahub_rail.agent` did not exist.
+
+✓ **Seeder** — was calling GraphQL mutations DataHub does not have
+  (`upsertDataset`, `addSchema`, `createLineage`, `deleteDataset`) and
+  swallowing the `errors` key. Rewritten onto OpenAPI v3 with `SeedError`
+  fail-loud checks; idempotent.
+✓ **MCP client** — `await stdio_client(...)` is invalid and the four tools it
+  called are not exposed. Rewritten against `search` / `get_entities` /
+  `get_lineage` / `list_schema_fields` with an `AsyncExitStack` lifecycle.
+✓ **`agent.py`** — the entrypoint the README and video script are built
+  around; added.
+✓ **`gms.py` / `graph.py`** — freshness and declared lineage edges are not in
+  the MCP surface, so they read `datasetProperties` / `upstreamLineage`
+  aspects from GMS. `GraphClient` journals reads → provenance table.
+✓ **Lineage probe** — compares declared vs resolved edges (previously any
+  dataset without upstream failed, so the healthy control could not pass).
+✓ **`config/probes.yaml`** — was a Python docstring, not valid YAML; nothing
+  loaded it and PyYAML was not a dependency.
+✓ **Drift artifact** — malformed hunk over a nonexistent file; now a difflib
+  diff against committed `contracts/transactions_warehouse.schema.yaml`,
+  with tests that run `git apply`.
+✓ **sample-outputs/** — described a different estate than the seeder plants;
+  regenerated from a live two-run pass via `scripts/refresh_sample_outputs.py`.
+✓ **Docs** — README, DEMO_VIDEO_SCRIPT, DEVPOST corrected; added
+  `docs/DEMO_CRIB_SHEET.md`.
+
+**Verified live:** 3 planted faults caught, 2 healthy controls pass; day 2
+renders `CHRONIC ... (day 2)`; `RECOVERED` confirmed by refreshing
+`orders_archive`; `git apply --check` on the generated diff exits 0.
+
+**Gates:** 131 tests green (was 86), ruff 0.16.1 clean,
+`bpsai-pair arch check src/ --strict` clean, GitHub Actions green on PR #2.
+
 - **DHA.7 done** (auto-updated by hook)
 
 ### Session: 2026-08-02 - DHA.7 Completion (README + Devpost + Demo Script)

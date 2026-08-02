@@ -1,0 +1,11 @@
+# Downstream schema contract for transactions_warehouse.
+#
+# This is what the consumer expects from the upstream `transactions` table.
+# The seeded schema-drift fault changes upstream `amount` to `int` while this
+# contract still expects `decimal(12,2)`; the agent emits a patch against
+# this file in outbox/schema_drift_transactions_warehouse.diff.
+fields:
+  - field_path: id
+    type: bigint
+  - field_path: amount
+    type: decimal(12,2)

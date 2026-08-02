@@ -107,13 +107,21 @@ DATAHUB_GMS_URL=http://localhost:8080 DATAHUB_GMS_TOKEN= \
   `grep_documents`) are auto-hidden when the catalog has no documents.
 
 Smoke test (initialize + tools/list proof, output in
-[mcp-smoke.md](mcp-smoke.md)):
+[mcp-smoke.md](mcp-smoke.md)). The project venv from
+`pip install -e ".[dev]" -c constraints.txt` works for this too — the
+`.dhenv` venv is only needed for the `datahub` CLI itself:
 
 ```bash
-cd ~/Projects/datahub-rail-agent
 DATAHUB_GMS_URL=http://localhost:8080 DATAHUB_GMS_TOKEN= \
-  .dhenv/bin/python scripts/mcp_smoke.py
+  python scripts/mcp_smoke.py
 ```
+
+The agent does not need the server started by hand: `MCPClient` spawns
+`uvx mcp-server-datahub@latest` over stdio and forwards these same two
+environment variables.
+
+Note for `mcp` 2.0.x clients: `Tool.inputSchema` was renamed to
+`Tool.input_schema`, and `CallToolResult.isError` to `.is_error`.
 
 ## Resource notes
 

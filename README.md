@@ -1,76 +1,96 @@
 # datahub-rail-agent
 
-A data-rail health monitor agent for DataHub's context graph. It runs capture-based liveness probes over dataset freshness and lineage, applies fail-loud classification so silent outages surface as incidents instead of green dashboards, and produces delta-aware alerts that fire on meaningful change rather than raw thresholds. When something breaks, it walks the lineage graph to triage root cause and generates owner-addressed incident reports. It also detects schema and contract drift and emits PR-ready fix artifacts. Integration with DataHub is via the DataHub MCP Server.
+A data-rail health monitor agent for DataHub's context graph. It runs capture-based liveness probes over dataset freshness, lineage, and schema contracts, applies fail-loud classification so silent outages surface as incidents instead of green dashboards, and produces delta-aware alerts that fire on meaningful change rather than raw thresholds. When something breaks, it walks the lineage graph to triage root cause and generates owner-addressed incident reports. It also detects schema and contract drift and emits PR-ready fix artifacts. Graph reads go through the DataHub MCP Server.
 
 ## Quick Start: From Zero to Demo
 
+Every command below was run end to end against a local DataHub quickstart
+(server v1.5.0.6, mcp-server-datahub v3.4.5) and the output shown is the
+output it produced.
+
 ### Prerequisites
 
-- Python 3.11+
-- Docker (for running DataHub locally)
-- A DataHub instance with the MCP Server running (see below)
+- Python 3.11 (3.14 is not supported: `pydantic-core` has no wheel for it)
+- Docker Desktop, for the DataHub quickstart
+- [`uv`](https://docs.astral.sh/uv/) on your PATH — the agent launches the
+  MCP server with `uvx`
 
 ### 1. Clone and Install
 
 ```bash
-git clone https://github.com/<your-org>/datahub-rail-agent.git
+git clone https://github.com/fivedollarfridays/datahub-rail-agent.git
 cd datahub-rail-agent
-python -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -e .
+pip install -e ".[dev]" -c constraints.txt
 ```
+
+`constraints.txt` pins the toolchain the test suite and CI run against.
 
 ### 2. Start DataHub Locally
 
-If you don't have a DataHub instance running:
+DataHub needs MySQL, Kafka and OpenSearch alongside GMS, so use the
+quickstart rather than a bare `docker run`:
 
 ```bash
-# Using Docker (quickstart)
-docker run -d \
-  -p 8080:8080 \
-  -p 9090:9090 \
-  -p 5432:5432 \
-  --name datahub \
-  acryldata/datahub-gms:latest
+pip install acryl-datahub
+datahub docker quickstart          # first run pulls images (15-30+ min)
 ```
 
-Wait for DataHub to be ready (~30 seconds). Check health:
-```bash
-curl http://localhost:8080/health
-```
-
-### 3. Run the MCP Server
-
-In a separate terminal:
+Check it is up:
 
 ```bash
-# If using the DataHub MCP Server
-# (Instructions assume you have mcp-server-datahub installed)
-mcp-server-datahub --datahub-url http://localhost:8080
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/health   # 200
 ```
 
-This exposes DataHub's context graph via MCP tools that datahub-rail-agent uses.
+| Port | Service |
+|---|---|
+| 9002 | DataHub UI (login `datahub` / `datahub`) |
+| 8080 | GMS: REST, `/api/graphql`, OpenAPI |
+
+The quickstart runs with metadata-service auth disabled, so no access token
+is needed locally.
+
+### 3. The MCP Server
+
+You do **not** need to start it yourself. The agent spawns
+`uvx mcp-server-datahub@latest` over stdio and passes `DATAHUB_GMS_URL` /
+`DATAHUB_GMS_TOKEN` through to it.
+
+To verify the server independently:
+
+```bash
+DATAHUB_GMS_URL=http://localhost:8080 DATAHUB_GMS_TOKEN= \
+  python scripts/mcp_smoke.py
+```
+
+See [docs/mcp-smoke.md](docs/mcp-smoke.md) for the recorded output.
 
 ### 4. Seed the Demo Estate
 
-With DataHub and MCP running, seed a synthetic broken data estate with 3 deliberate faults:
-
 ```bash
-DATAHUB_GMS_URL=http://localhost:8080 \
-  python scripts/seed_demo_estate.py
+DATAHUB_GMS_URL=http://localhost:8080 python scripts/seed_demo_estate.py
 ```
 
 Output:
 ```
 ✓ Seeded dataset: users (healthy control)
 ✓ Seeded dataset: orders_archive (stale: 45 days old)
-✓ Seeded dataset: events (broken lineage: upstream missing)
-✓ Seeded dataset: transactions (schema drift: int instead of decimal(12,2))
+✓ Seeded dataset: events (broken lineage: upstream soft-deleted)
+✓ Seeded dataset: transactions (schema drift: int vs decimal(12,2))
+✓ Seeded dataset: transactions_warehouse (downstream consumer)
+
+Seeded 1 healthy control(s) and 3 fault class(es) into http://localhost:8080
 ```
 
-### 5. Run Probes (First Pass)
+Writes go through DataHub's OpenAPI v3 entity endpoint and are checked: any
+non-2xx or error body raises `SeedError` rather than reporting a false
+success. Re-running is idempotent — the same URNs are upserted, so the
+estate stays at five datasets.
 
-Execute the first health check run:
+Search indexing is asynchronous; give it a few seconds before step 5.
+
+### 5. Run Probes (First Pass)
 
 ```bash
 python -m datahub_rail.agent \
@@ -80,52 +100,71 @@ python -m datahub_rail.agent \
 
 **Expected output:**
 ```
-Dataset: users — PASS (freshness OK, lineage OK, schema OK)
-Dataset: orders_archive — FAIL (Freshness: 45 days old, SLA: 24h)
-Dataset: events — FAIL (Lineage: upstream dataset missing)
-Dataset: transactions — FAIL (Schema: amount type is int, expected decimal(12,2))
+[FAIL] events — lineage_integrity: Broken lineage: declared upstream 'raw_events_old' missing from the graph
+[FAIL] orders_archive — freshness: Dataset is stale: last modified 45 days ago (SLA: 24h)
+[FAIL] transactions — schema_contract: Schema drift on 'amount': expected decimal(12,2), got int
+[PASS] transactions_warehouse — freshness OK, lineage_integrity OK
+[PASS] users — freshness OK, lineage_integrity OK
 ```
 
-All three probe failures land in `outbox/` directory.
+Three planted faults caught, two healthy controls pass. The digest that
+follows classifies each failure on first sight:
+
+```
+NEW: urn:li:dataset:(...,demo.public.events,PROD) / lineage_integrity — Broken lineage: declared upstream 'raw_events_old' missing from the graph
+NEW: urn:li:dataset:(...,demo.public.orders_archive,PROD) / freshness — Dataset is stale: last modified 45 days ago (SLA: 24h)
+NEW: urn:li:dataset:(...,demo.public.transactions,PROD) / schema_contract — Schema drift on 'amount': expected decimal(12,2), got int
+```
+
+The process exits non-zero when any probe fails, so it drops straight into CI.
 
 ### 6. Check Incident Reports (Day 1)
 
 ```bash
-ls -la outbox/
+ls outbox/
 cat outbox/incident_orders_archive_*.md
-cat outbox/incident_events_*.md
-cat outbox/incident_transactions_*.md
 ```
 
-Each report includes:
-- **What Broke:** Dataset name, owner, probe type
-- **Evidence:** Timestamps, SLA details, lineage paths
-- **Root-Cause Candidate:** Deepest failing node in the lineage graph
-- **Next Steps:** Owner mentions and remediation guidance
+Each report includes **What Broke** (dataset, owner @mentions), **Evidence**
+(failing probe, message, last-modified date, lineage path), a
+**Root-Cause Candidate**, **Next Steps**, and a **Provenance** table listing
+every graph read the report is built from.
 
-**Sample excerpt:**
+**Sample excerpt** (from `sample-outputs/incident_orders_archive.md`):
 ```markdown
-## Incident Report: orders_archive
 ### What Broke
-Dataset: **orders_archive** (data-eng owner)
-Probe: FreshnessProbe
-Status: FAIL
+Dataset: **orders_archive**
+URN: `urn:li:dataset:(urn:li:dataPlatform:postgres,demo.public.orders_archive,PROD)`
+Owner(s): @data-eng
 
 ### Evidence
-- Last modified: 2026-06-18 (45 days old)
-- SLA: 24h
-- Status: CHRONIC (still failing)
+- **Failing probe**: `freshness`
+- **Probe**: Dataset is stale: last modified 45 days ago (SLA: 24h)
+- **Last modified**: 2026-06-18 20:18 UTC (45 days old)
 
 ### Root-Cause Candidate
-Dataset: **orders_archive** (0 hops upstream, is the failure)
+Dataset: **orders_archive** — is the failure
+Platform: postgres
+Distance from failure: 0 hops
+Owner: @data-eng
 
-### Next Steps
-@data-eng: Check data pipeline; last run was 45 days ago.
+### Provenance
+
+| Fact source (tool) | Entity | Read at |
+|---|---|---|
+| `gms:datasetProperties.lastModified` | `urn:...demo.public.orders_archive,PROD)` | 2026-08-02T20:21:02.634620+00:00 |
+| `gms:upstreamLineage` | `urn:...demo.public.orders_archive,PROD)` | 2026-08-02T20:21:02.646027+00:00 |
+| `mcp:get_lineage` | `urn:...demo.public.orders_archive,PROD)` | 2026-08-02T20:21:02.892223+00:00 |
+| `mcp:get_entities` | `urn:...demo.public.orders_archive,PROD)` | 2026-08-02T20:21:04.674104+00:00 |
 ```
+
+(URNs abbreviated here for width; the committed report carries them in full.)
 
 ### 7. Run Probes Again (Day 2)
 
-Simulate a second run without fixing anything:
+Run the exact same command a second time without fixing anything. The state
+history is what makes the second run different — there is no clock to
+advance and nothing to backdate:
 
 ```bash
 python -m datahub_rail.agent \
@@ -135,53 +174,68 @@ python -m datahub_rail.agent \
 
 **Expected state digest:**
 ```
-Dataset: users — PASS (no change)
-Dataset: orders_archive — FAIL (status: CHRONIC — still failing, deprioritized)
-Dataset: events — FAIL (status: CHRONIC)
-Dataset: transactions — FAIL (status: CHRONIC)
+CHRONIC: urn:li:dataset:(...,demo.public.events,PROD) / lineage_integrity (day 2) — Broken lineage: declared upstream 'raw_events_old' missing from the graph
+CHRONIC: urn:li:dataset:(...,demo.public.orders_archive,PROD) / freshness (day 2) — Dataset is stale: last modified 45 days ago (SLA: 24h)
+CHRONIC: urn:li:dataset:(...,demo.public.transactions,PROD) / schema_contract (day 2) — Schema drift on 'amount': expected decimal(12,2), got int
 ```
 
-Notice: Probes fire on **change**, not raw thresholds. Chronic failures show up as "still failing" in state history rather than new alerts—this is the delta-aware digest.
+The same faults are now "still failing (day 2)" instead of NEW. Fix a fault
+and the next run reports `RECOVERED` for it. Delete `state_history.jsonl` to
+reset the demo to day 1.
 
 ### 8. Check Fix Artifacts for Schema Drift
 
-For the `transactions` schema drift fault, review the generated fix artifacts:
-
 ```bash
-ls -la outbox/
 cat outbox/schema_patch_transactions_warehouse.yaml
 cat outbox/schema_drift_transactions_warehouse.diff
 cat outbox/commit_message_transactions_warehouse.txt
 ```
 
-These artifacts are PR-ready:
-- **Patch:** Downstream config correction (YAML) for consumers to adopt upstream schema
-- **Diff:** Before/after unified diff showing the type change
-- **Commit message:** Structured message linking fault class, detection method, owner
+The diff is a real unified diff against the committed downstream contract at
+[`contracts/transactions_warehouse.schema.yaml`](contracts/transactions_warehouse.schema.yaml),
+so it applies as-is:
+
+```bash
+git apply --check outbox/schema_drift_transactions_warehouse.diff   # exits 0
+```
+
+- **Patch** — downstream config correction (YAML) for consumers to adopt the upstream type
+- **Diff** — unified diff of the contract change, verified by `git apply` in the test suite
+- **Commit message** — links fault class, detection method, and owner
 
 ### Verification: Screenshots & Outputs
 
-After each step, you can verify results:
+1. **UI Verification:** open http://localhost:9002 (login `datahub`/`datahub`),
+   search `orders_archive`, and check its last-modified metadata is 45 days old.
+2. **Outbox Artifacts:** incident reports, patches and diffs all land in `outbox/`.
+3. **State History:** run twice to see NEW flip to CHRONIC in `state_history.jsonl`.
 
-1. **UI Verification:** Open http://localhost:8080 → Search "orders_archive" → Check `lastModified` metadata shows 45-day-old timestamp.
-2. **Outbox Artifacts:** All incident reports, patches, and diffs land in `outbox/` directory—fully reproducible.
-3. **State History:** Run twice to see delta-aware state history; second run shows "CHRONIC" classifications.
-
-All sample outputs are committed to `sample-outputs/` for judge verification.
+`sample-outputs/` holds the artifacts from a real two-run pass against the
+seeded estate, regenerated with `python scripts/refresh_sample_outputs.py`.
 
 ## Probes Engine
 
-The health monitor runs three probe classes against each dataset:
+The health monitor runs three probe classes:
 
-1. **FreshnessProbe** — Capture-based: measures dataset age via `lastModified` metadata timestamp, compares against configurable SLA (default: 24h). Never queries job heartbeats; detects staleness from data's own recency signals.
+1. **FreshnessProbe** — Capture-based: measures dataset age from its own
+   `lastModified` metadata and compares against a configurable SLA (default
+   24h). Never queries job heartbeats.
 
-2. **LineageProbe** — Walks upstream edges (1 hop by default) to detect broken/missing dependencies. Loud warns on "watch blind" states (no lineage data available).
+2. **LineageProbe** — Compares *declared* upstream edges against the edges
+   the graph can still *resolve*. A dataset that declares no upstream is a
+   source table and passes; a dataset whose declared upstream no longer
+   resolves (the target was deleted) fails loudly and names the missing
+   dataset.
 
-3. **SchemaProbe** — Compares actual schema fields against expected downstream contract (e.g., `amount: decimal(12,2)`). Detects type drift when upstream column type changes.
+3. **SchemaProbe** — Compares actual field types against the expected
+   downstream contract (e.g. `amount: decimal(12,2)`) and reports type drift.
 
-**Never-raise contract:** All probes catch exceptions and return `ProbeResult` with `status: fail` and an actionable message. No silent passes on unreachable states.
+**Never-raise contract:** all probes catch exceptions and return a
+`ProbeResult` with `status: fail` and an actionable message. No silent passes
+on unreachable states.
 
-**Config-driven registry:** Probes are loaded from `config/probes.yaml`, so you can point the agent at your own estate by editing the config. Example:
+**Config-driven registry:** probes are loaded from `config/probes.yaml`, so
+you can point the agent at your own estate by editing the config:
 
 ```yaml
 probes:
@@ -197,79 +251,95 @@ probes:
     params:
       expected_fields:
         amount: decimal(12,2)
+
+# Only these datasets have their schema contract enforced.
+schema_contract_datasets:
+  - urn:li:dataset:(urn:li:dataPlatform:postgres,demo.public.transactions,PROD)
+
+discovery_query: demo.public
 ```
 
 ## Delta-Aware State History
 
-**The Alarm-Fatigue Killer.** Traditional threshold-based alerting fires on every violation, drowning teams in alert noise when systems degrade gracefully or when a single upstream SLA miss cascades across a hundred datasets. Datahub-rail solves this by persisting per-probe status history (JSONL) and rendering **delta-aware digests** — meaningful alerts that fire on *change*, not raw thresholds.
+**The Alarm-Fatigue Killer.** Threshold-based alerting fires on every
+violation, drowning teams in noise when a single upstream SLA miss cascades
+across a hundred datasets. This agent persists per-probe status history
+(JSONL) and renders **delta-aware digests** — alerts keyed to *change*.
 
-On each run, the digest classifies failures as: **NEW** (first occurrence; triggers urgency), **CHRONIC** (still failing on day N; deprioritized but tracked), or **RECOVERED** (flip from fail→pass; closes the incident). First run with no history degrades gracefully; empty state renders as no-op. This originality criterion distinguishes datahub-rail from every existing threshold-alert tool in the category and directly addresses the capture-reliability doctrine: *fail loud on outage, suppress noise on chronic states, celebrate recovery*.
+Each run classifies every probe as **NEW** (first occurrence), **CHRONIC**
+(still failing on day N, deprioritized but tracked), or **RECOVERED**
+(fail→pass, closes the incident). A first run with no history degrades
+gracefully.
 
 ## Lineage-Walk Triage
 
-When a probe fails, the agent walks the lineage graph upstream from the failing dataset to identify the **root-cause candidate**—the deepest failing node in the dependency chain. It then:
+When a probe fails the agent walks the lineage graph upstream to identify the
+**root-cause candidate** — the deepest failing node in the chain. It then:
 
-1. **Collects upstream nodes** — BFS walk collecting all ancestors up to configurable depth
-2. **Filters failing candidates** — Identifies which upstream nodes have probe failures
-3. **Picks root cause** — Selects the deepest failing node (furthest from failure); deterministic tie-breaking by URN
-4. **Gathers evidence** — Freshness timestamps, lineage path, probe messages (all from graph reads)
-5. **Generates owner-addressed markdown report** — Structured incident narrative with @mentions
+1. **Collects upstream nodes** — BFS walk up to a configurable depth
+2. **Picks root cause** — deepest node, deterministic tie-break by URN; a
+   dataset with no upstream is reported as its own root cause at 0 hops
+3. **Gathers evidence** — freshness timestamps, lineage path, probe messages
+4. **Generates an owner-addressed markdown report** with @mentions
 
-**Provenance guarantee:** Every fact in the report (timestamps, owners, lineage edges, probe results) is sourced directly from DataHub graph reads. LLM only phrases the narrative; facts are never hallucinated. Reports land in `outbox/` directory.
+**Provenance guarantee:** every fact in a report comes from a DataHub graph
+read, and each report ends with a provenance table naming the tool, entity
+and timestamp of every read behind it. Nothing in the evidence is generated
+text.
 
-Example report structure:
-```markdown
-## Incident Report
-### What Broke
-Dataset: **events** (analytics team owner)
-### Evidence
-- Freshness: stale (5 days old, SLA: 24h)
-- Lineage path: raw-events → events
-### Root-Cause Candidate
-Dataset: **raw-events** (kafka-ops owner, 1 hop upstream)
-### Next Steps
-Contact root-cause owner...
----
-*All facts in this report sourced from DataHub context graph reads.*
-```
+## How DataHub Is Read
+
+Graph reads go through the DataHub MCP Server (v3.4.5), using the tools it
+actually exposes:
+
+| Need | Source |
+|---|---|
+| Dataset discovery | MCP `search` |
+| Owner, name, platform | MCP `get_entities` |
+| Schema field types | MCP `list_schema_fields` |
+| Resolved upstream lineage | MCP `get_lineage` |
+| `lastModified` freshness | GMS `datasetProperties` aspect |
+| Declared lineage edges | GMS `upstreamLineage` aspect |
+
+The last two are read from the same DataHub instance over OpenAPI v3 because
+the MCP tool surface does not expose them: entity properties come back
+without `lastModified`, and `get_lineage` only returns upstreams that still
+resolve — a soft-deleted upstream simply disappears, which is precisely the
+fault the lineage probe needs to see.
 
 ## Demo Data Estate
 
-The project includes a deterministic seed script (`scripts/seed_demo_estate.py`) that plants a synthetic data estate with deliberately injected faults for demonstration and testing. This enables reproducible video footage and judge-verifiable outputs.
+`scripts/seed_demo_estate.py` plants a deterministic estate with three
+deliberate faults plus healthy controls.
 
 ### Fault Classes (3)
 
-1. **Stale Freshness** — A dataset (`orders_archive`) with `lastModified` timestamp 45 days old, beyond a typical SLA. Visible in DataHub UI via freshness metadata.
-
-2. **Broken Lineage Edge** — A downstream dataset (`events`) with an upstream dependency on a deleted dataset (`raw_events_old`). The lineage edge points to a non-existent entity.
-
-3. **Schema-Contract Drift** — An upstream dataset (`transactions`) where the `amount` column type changed from `decimal(12,2)` to `int`, while a downstream consumer (`transactions_warehouse`) still expects `decimal(12,2)`. Type mismatch detectable via schema metadata.
+1. **Stale Freshness** — `orders_archive` with a `lastModified` 45 days old.
+2. **Broken Lineage Edge** — `events` declares an upstream edge to
+   `raw_events_old`, which is then soft-deleted, leaving the edge dangling.
+3. **Schema-Contract Drift** — `transactions.amount` is `int` while the
+   downstream consumer `transactions_warehouse` still expects `decimal(12,2)`.
 
 ### Healthy Controls
 
-- **users** table: current freshness, full schema, no lineage issues.
+- **users** — current freshness, no declared upstream, no contract violation.
+- **transactions_warehouse** — current freshness with intact lineage.
 
-### Running the Seeder
+## Development
 
-**One-command seed (idempotent re-runs):**
 ```bash
-DATAHUB_GMS_URL=http://localhost:8080 \
-  python scripts/seed_demo_estate.py
+pip install -e ".[dev]" -c constraints.txt
+python -m pytest tests/ -q     # 131 tests
+ruff check src/ tests/         # ruff 0.16.1
 ```
-
-Re-running the script is idempotent: it upserts datasets and edges, so multiple runs do not create duplicates.
 
 ## Upstream Contribution
 
-**Bonus criterion achieved:** Health-monitoring agent patterns guide contributed to the DataHub MCP Server project.
-
-See [PR #174](https://github.com/acryldata/mcp-server-datahub/pull/174) on the upstream mcp-server-datahub repository: `docs/agent-patterns-health-monitoring.md`. This guide documents the architectural patterns used in datahub-rail-agent and is designed to help future hackathon participants and DataHub users build their own health-monitoring agents:
-
-- Capture-based freshness probes
-- Never-raise error contract
-- Delta-aware alerting with state history
-- Lineage-walk root-cause triage
-- Provenance guarantees (graph reads only)
+**Bonus criterion:** a health-monitoring agent patterns guide contributed to
+the DataHub MCP Server project — [PR #174](https://github.com/acryldata/mcp-server-datahub/pull/174)
+(`docs/agent-patterns-health-monitoring.md`), documenting capture-based
+freshness probes, the never-raise error contract, delta-aware alerting,
+lineage-walk triage, and provenance guarantees.
 
 ## Hackathon entry
 
@@ -277,19 +347,23 @@ Built for **Build with DataHub: The Agent Hackathon** (Devpost).
 
 ## Prior inspiration disclosure
 
-The design applies a capture-reliability doctrine battle-tested in a private ops system (capture-based liveness, fail-loud on outage, freshness verified before reporting state). All code in this repository is newly written during the submission period.
+The design applies a capture-reliability doctrine battle-tested in a private
+ops system (capture-based liveness, fail-loud on outage, freshness verified
+before reporting state). All code in this repository is newly written during
+the submission period.
 
 ## Doctrine & Inspiration
 
-This project applies architectural patterns from capture-reliability doctrine, battle-tested in private ops systems:
-
-1. **Capture-based liveness** — Measure freshness from data's own timestamps (`lastModified`), not job heartbeats. Jobs can succeed silently while data stales.
-2. **Fail-loud on outage** — All probes have never-raise contracts; exceptions become actionable messages. Silent passes on unreachable states are replaced with loud failures.
-3. **Delta-aware alerting** — Fire on meaningful state *change* (NEW / CHRONIC / RECOVERED), not raw thresholds. Eliminates alert fatigue while preserving urgency signals.
-4. **Lineage-walk root-cause triage** — Walk the DAG to find the deepest failing node; surface owner @mentions in reports so blame doesn't land on innocent consumers.
-5. **Provenance guarantee** — Every fact in incident reports is sourced from DataHub graph reads. LLM only phrases narrative; facts are never hallucinated.
-
-All code in this repository is newly written during the Build with DataHub: The Agent Hackathon submission period.
+1. **Capture-based liveness** — measure freshness from the data's own
+   timestamps, not job heartbeats. Jobs succeed silently while data stales.
+2. **Fail-loud on outage** — never-raise contracts turn exceptions into
+   actionable messages; writes that fail raise instead of reporting success.
+3. **Delta-aware alerting** — fire on state *change* (NEW / CHRONIC /
+   RECOVERED), not raw thresholds.
+4. **Lineage-walk root-cause triage** — walk the DAG to the deepest failing
+   node so blame does not land on innocent consumers.
+5. **Provenance guarantee** — every fact in a report is traceable to a
+   specific graph read.
 
 ## License
 

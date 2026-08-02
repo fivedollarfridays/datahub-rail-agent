@@ -1,5 +1,11 @@
 """Generate PR-ready fix artifacts for schema-drift faults."""
+import difflib
 from pathlib import Path
+
+
+def _default_contract(field_name: str, expected_type: str) -> str:
+    """Fallback contract text when no committed contract file is supplied."""
+    return f"fields:\n  - field_path: {field_name}\n    type: {expected_type}\n"
 
 
 class DriftArtifactGenerator:
@@ -36,22 +42,34 @@ Run this patch against your downstream dataset configuration.
         return patch_file
 
     async def generate_diff_file(self, drift_info: dict, outbox_dir: Path) -> Path:
-        """Generate diff-formatted change file."""
+        """Generate a unified diff that `git apply` accepts.
+
+        The diff is computed with difflib against the downstream contract
+        text, so hunk headers and context are correct and the patch applies
+        cleanly to the committed contract file.
+        """
         outbox_dir.mkdir(parents=True, exist_ok=True)
 
-        field_name = drift_info["field_name"]
         expected = drift_info["expected_type"]
         actual = drift_info["actual_type"]
         downstream = drift_info["downstream_dataset"]
+        contract_path = drift_info.get(
+            "contract_path", f"contracts/{downstream}.schema.yaml"
+        )
 
-        diff_content = f"""--- {downstream}/schema.yaml.orig
-+++ {downstream}/schema.yaml
-@@ -1,4 +1,4 @@
- fields:
-   - field_path: {field_name}
--    type: {expected}
-+    type: {actual}
-"""
+        before = drift_info.get("contract_text")
+        if before is None:
+            before = _default_contract(drift_info["field_name"], expected)
+        after = before.replace(f"type: {expected}", f"type: {actual}")
+
+        diff_content = "".join(
+            difflib.unified_diff(
+                before.splitlines(keepends=True),
+                after.splitlines(keepends=True),
+                fromfile=f"a/{contract_path}",
+                tofile=f"b/{contract_path}",
+            )
+        )
 
         diff_file = outbox_dir / f"schema_drift_{downstream}.diff"
         diff_file.write_text(diff_content)

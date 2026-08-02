@@ -1,4 +1,5 @@
 """Integration test: full triage pipeline against DHA.2 mocks."""
+from datahub_rail.incident_report import render_report
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datahub_rail.triage import TriageEngine
@@ -109,7 +110,7 @@ async def test_full_triage_pipeline():
         "last_modified": 1722595200 - (5 * 24 * 3600),
     }
 
-    markdown = engine._render_report(report_data)
+    markdown = render_report(report_data)
 
     # Verify report structure
     assert "## Incident Report" in markdown

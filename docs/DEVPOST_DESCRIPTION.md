@@ -16,7 +16,7 @@ This agent solves three problems:
 ### Probes
 
 1. **Freshness Probe** — Measures dataset age via `lastModified` timestamp; compares against SLA (default: 24h). Captures stale data in-flight, before cascading failures.
-2. **Lineage Probe** — Walks upstream edges to detect broken dependencies and missing lineage data. Warns loudly on "watch blind" states.
+2. **Lineage Probe** — Compares declared upstream edges against the edges the graph can still resolve. A dataset that declares no upstream is a source table and passes; one whose declared upstream no longer resolves fails loudly and names the missing dataset.
 3. **Schema Probe** — Detects contract drift when upstream column types change (e.g., `decimal(12,2)` → `int`).
 
 All probes have **never-raise contracts**: exceptions become actionable messages instead of silent passes.
@@ -40,23 +40,24 @@ When a probe fails, the agent walks the graph upstream to find the root-cause ca
 
 For schema-contract violations, the agent emits PR-ready artifacts:
 - **YAML patch** — Downstream config correction for consumers to adopt upstream schema
-- **Unified diff** — Before/after type change, visually clear
+- **Unified diff** — Computed with difflib against the committed downstream contract (`contracts/transactions_warehouse.schema.yaml`), so `git apply` accepts it; the test suite applies it for real on every run
 - **Commit message** — Structured message linking fault class, detection method, owner
 
 ## Tech Stack
 
 - **Language:** Python 3.11+
 - **DataHub Integration:** DataHub MCP Server (Model Context Protocol)
-- **Data Structures:** Pydantic types for type safety; JSONL for state history
+- **Data Structures:** Python dataclasses for typed graph entities; JSONL for state history
 - **Storage:** Local outbox/ directory for incidents and artifacts
-- **Testing:** pytest with fixture-based mocks; CI via GitHub Actions
+- **Testing:** pytest (131 tests, 85% line coverage) with recorded-response fixtures; ruff 0.16.1 and the full suite run in GitHub Actions
 
 ## DataHub Surfaces Used
 
-1. **Context Graph Reads** — `list_datasets`, `get_freshness`, `fetch_schema`, `walk_upstream` / `walk_downstream` via MCP Server
-2. **Metadata Ingestion** — Seeder uses DataHub GraphQL API to inject test datasets with deliberate faults
-3. **Lineage Navigation** — BFS graph walk to identify root-cause candidates
-4. **Owner Information** — Fetched via graph reads for @mentions in incident reports
+1. **Context Graph Reads via MCP Server** — `search` (dataset discovery), `get_entities` (owner, name, platform), `list_schema_fields` (field types), `get_lineage` (resolved upstream edges)
+2. **Aspect Reads via OpenAPI v3** — `datasetProperties.lastModified` for capture-based freshness and the `upstreamLineage` aspect for declared edges. The MCP tool surface exposes neither: entity properties come back without `lastModified`, and `get_lineage` only returns upstreams that still resolve, so a soft-deleted upstream — the exact broken-lineage fault — simply disappears
+3. **Metadata Ingestion** — Seeder writes datasets, schemas, ownership and lineage through the OpenAPI v3 entity endpoint, failing loud on any non-2xx or error body
+4. **Lineage Navigation** — BFS graph walk to identify root-cause candidates
+5. **Owner Information** — Read from the ownership aspect for @mentions in incident reports
 
 ## Demo
 
@@ -65,14 +66,14 @@ The project includes a reproducible demo estate with 3 deliberate faults:
 2. **Broken Lineage** — Dataset `events` with upstream dependency on deleted dataset
 3. **Schema Drift** — Dataset `transactions` where `amount` column changed from `decimal(12,2)` to `int`
 
-Plus one healthy control (`users` table) to show passing probes.
+Plus healthy controls (`users`, `transactions_warehouse`) to show passing probes.
 
 **One-command seed:**
 ```bash
 DATAHUB_GMS_URL=http://localhost:8080 python scripts/seed_demo_estate.py
 ```
 
-All sample outputs (incident reports, patches, diffs) are committed and reproducible.
+Re-running the seeder is idempotent. All sample outputs (incident reports, patches, diffs, state digest) are committed, and they are regenerated from a real two-run pass by `scripts/refresh_sample_outputs.py` rather than written by hand.
 
 ## Key Innovation
 
@@ -84,10 +85,10 @@ This directly addresses the capture-reliability doctrine: *fail loud on outage, 
 
 ## Code Quality
 
-- **100% test coverage** on new modules (86 total tests)
-- **Never-raise contract** enforced throughout: no silent passes
+- **131 tests, 85% line coverage**, including tests that apply the generated patch with `git apply`
+- **Never-raise contract** enforced throughout: no silent passes on reads, and loud failures on writes
 - **TDD throughout** — all features written test-first
-- **Architecture enforced** — 400-line file ceiling; functions under limits
+- **Architecture enforced** — file and function size limits checked in CI
 - **Upstream contribution** — Health-monitoring agent patterns guide contributed to [DataHub MCP Server PR #174](https://github.com/acryldata/mcp-server-datahub/pull/174)
 
 ## Future Enhancements
@@ -103,6 +104,6 @@ The architecture applies capture-reliability patterns from battle-tested private
 
 ---
 
-**Repository:** https://github.com/<org>/datahub-rail-agent  
+**Repository:** https://github.com/fivedollarfridays/datahub-rail-agent  
 **Demo Video:** [TBD — Kevin will record]  
 **Hackathon:** Build with DataHub: The Agent Hackathon
