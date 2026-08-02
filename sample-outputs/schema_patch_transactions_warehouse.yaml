@@ -1,0 +1,16 @@
+# Schema Patch: transactions_warehouse
+
+## Issue
+Field `amount` in `transactions_warehouse` expects `decimal(12,2)` but upstream provides `int`.
+
+## Fix
+Update downstream schema to match upstream type:
+
+```yaml
+fields:
+  - field_path: amount
+    type: int
+```
+
+## Applied By
+Run this patch against your downstream dataset configuration.

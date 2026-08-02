@@ -1,0 +1,18 @@
+"""Config-driven probe registry for the health monitor agent."""
+
+probes:
+  - name: freshness
+    type: freshness
+    params:
+      sla_hours: 24
+
+  - name: lineage_integrity
+    type: lineage
+    params: {}
+
+  - name: schema_contract
+    type: schema
+    params:
+      expected_fields:
+        amount: decimal(12,2)
+        id: bigint
