@@ -1,0 +1,7 @@
+--- transactions_warehouse/schema.yaml.orig
++++ transactions_warehouse/schema.yaml
+@@ -1,4 +1,4 @@
+ fields:
+   - field_path: amount
+-    type: decimal(12,2)
++    type: int

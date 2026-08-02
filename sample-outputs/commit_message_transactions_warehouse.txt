@@ -1,0 +1,11 @@
+Fix schema drift: transactions_warehouse field 'amount' type mismatch
+
+The downstream dataset transactions_warehouse expects field 'amount' of type
+decimal(12,2), but the upstream transactions recently changed it to int.
+
+This patch corrects the downstream schema expectation to match the
+upstream type, aligning the contract.
+
+Upstream owner: @data-eng
+Fault class: schema-contract-drift
+Detection method: SchemaProbe (expected vs actual type check)

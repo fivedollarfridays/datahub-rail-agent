@@ -8,3 +8,8 @@ __pycache__/
 .paircoder/history/benchmarks/matrix/**
 .paircoder/telemetry/**
 # <<< paircoder managed
+
+# never commit environments or agent transcripts
+.venv/
+.paircoder/engage/runs/
+.dhenv/

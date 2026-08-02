@@ -1,0 +1,31 @@
+version: 1
+updated_at: '2026-08-02T17:40:29.480330+00:00'
+last_transition:
+  event: task_done
+  at: '2026-08-02T17:40:29.480330+00:00'
+  task_id: DHA.7
+tasks:
+  DHA.1:
+    status: done
+    updated_at: '2026-08-02T17:03:27.390623+00:00'
+  DHA.2:
+    status: done
+    updated_at: '2026-08-02T17:10:41.723683+00:00'
+  DHA.3:
+    status: done
+    updated_at: '2026-08-02T17:15:35.864278+00:00'
+  DHA.4:
+    status: done
+    updated_at: '2026-08-02T17:19:38.083619+00:00'
+  DHA.5:
+    status: done
+    updated_at: '2026-08-02T17:28:09.817769+00:00'
+  DHA.6:
+    status: dispatched
+    updated_at: '2026-08-02T17:28:15.780507+00:00'
+  DHA.8:
+    status: dispatched
+    updated_at: '2026-08-02T17:32:44.166048+00:00'
+  DHA.7:
+    status: done
+    updated_at: '2026-08-02T17:40:29.480330+00:00'
