@@ -1,27 +1,34 @@
 # DataHub Rail Agent — Demo Video Script
 
-**Target Duration:** <3 minutes (170 seconds max)  
-**Narrator:** Kevin Masterson  
-**Audience:** Hackathon judges  
+**Target Duration:** <3 minutes (170 seconds max)
+**Narrator:** Kevin Masterson
+**Audience:** Hackathon judges
+
+Every command in this script has been run against a live DataHub quickstart
+(server v1.5.0.6, mcp-server-datahub v3.4.5) and the output blocks are the
+real output. A copy/paste-ready ordering is in
+[DEMO_CRIB_SHEET.md](DEMO_CRIB_SHEET.md).
+
+**Before recording:** have DataHub already running and the estate seeded, and
+delete `state_history.jsonl` so the first take is a clean day 1.
 
 ---
 
 ## Scene 1: The Problem (0:00–0:20)
 
 ### Shot List
-- **0:00–0:10:** Terminal showing a "healthy" DataHub UI with dataset `orders_archive` displayed in browser
-  - Point to `lastModified` timestamp in UI: "45 days ago"
-- **0:10–0:15:** Close-up of laptop screen; narrator voiceover: "This dataset stopped loading 45 days ago. But the dashboard still shows green."
-- **0:15–0:20:** Terminal showing an actual pipeline log: "Job succeeded" (heartbeat-based alerting is the problem)
+- **0:00–0:10:** Browser on http://localhost:9002 (login `datahub`/`datahub`),
+  searching `orders_archive`; point at the last-modified metadata: 45 days old
+- **0:10–0:20:** Narrator to camera
 
 ### Narrator Script
 ```
-"Data pipelines fail silently. This dataset stopped loading 45 days ago, 
-but because monitoring watched job heartbeats instead of data freshness, 
-no alert fired. When the data team finally noticed, blame landed on 
+"Data pipelines fail silently. This dataset stopped loading 45 days ago,
+but because monitoring watched job heartbeats instead of data freshness,
+no alert fired. When the data team finally noticed, blame landed on
 innocent downstream consumers instead of the root cause.
 
-DataHub Rail Agent fixes this with three ideas: capture-based health 
+DataHub Rail Agent fixes this with three ideas: capture-based health
 checks, meaningful alerts, and lineage-walk root-cause triage."
 ```
 
@@ -32,41 +39,40 @@ checks, meaningful alerts, and lineage-walk root-cause triage."
 ## Scene 2: Setting Up the Demo (0:20–0:40)
 
 ### Shot List
-- **0:20–0:25:** Terminal window showing `git clone && pip install`
+- **0:20–0:30:** Terminal, install (pre-run off camera; show the commands)
   ```bash
-  git clone https://github.com/<org>/datahub-rail-agent
-  cd datahub-rail-agent && python -m venv .venv && source .venv/bin/activate
-  pip install -e .
-  ```
-  (Commands scroll; ~5 sec)
-
-- **0:25–0:30:** Docker running DataHub
-  ```bash
-  docker run -d -p 8080:8080 acryldata/datahub-gms:latest
-  # Wait for it...
-  curl http://localhost:8080/health  # ✓ 200 OK
+  git clone https://github.com/fivedollarfridays/datahub-rail-agent.git
+  cd datahub-rail-agent
+  python3.11 -m venv .venv && source .venv/bin/activate
+  pip install -e ".[dev]" -c constraints.txt
   ```
 
-- **0:30–0:35:** Start MCP server (show terminal output)
+- **0:30–0:35:** DataHub already up
   ```bash
-  mcp-server-datahub --datahub-url http://localhost:8080
-  # MCP Server listening...
+  curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/health
+  # 200
   ```
 
-- **0:35–0:40:** Seed the demo estate (show seeder output)
+- **0:35–0:40:** Seed the demo estate
   ```bash
   DATAHUB_GMS_URL=http://localhost:8080 python scripts/seed_demo_estate.py
-  # ✓ Seeded: users (healthy)
-  # ✓ Seeded: orders_archive (stale: 45 days)
-  # ✓ Seeded: events (broken lineage)
-  # ✓ Seeded: transactions (schema drift)
+  ```
+  ```
+  ✓ Seeded dataset: users (healthy control)
+  ✓ Seeded dataset: orders_archive (stale: 45 days old)
+  ✓ Seeded dataset: events (broken lineage: upstream soft-deleted)
+  ✓ Seeded dataset: transactions (schema drift: int vs decimal(12,2))
+  ✓ Seeded dataset: transactions_warehouse (downstream consumer)
+
+  Seeded 1 healthy control(s) and 3 fault class(es) into http://localhost:8080
   ```
 
 ### Narrator Script
 ```
-"I'll run it on my laptop. Clone, install, start DataHub, start the 
-MCP server, and seed a demo estate with three deliberate faults: a 
-stale dataset, a broken lineage edge, and a schema drift. All in 20 seconds."
+"I'll run it on my laptop. Clone, install, and seed a demo estate with
+three deliberate faults: a stale dataset, a broken lineage edge, and a
+schema drift. There's no separate MCP server to babysit — the agent
+launches the DataHub MCP server itself."
 ```
 
 ### Timing: ~20 sec
@@ -81,66 +87,59 @@ stale dataset, a broken lineage edge, and a schema drift. All in 20 seconds."
   python -m datahub_rail.agent --config config/probes.yaml \
     --datahub-url http://localhost:8080
   ```
+  (First run takes a few seconds while `uvx` starts the MCP server.)
 
-- **0:45–1:00:** Show full terminal output (scroll through slowly)
+- **0:45–1:00:** Probe results
   ```
-  [INFO] Probing dataset: users
-  [PASS] users — freshness OK, lineage OK, schema OK
-  
-  [INFO] Probing dataset: orders_archive
-  [FAIL] orders_archive — Freshness probe: FAIL (45 days old, SLA: 24h)
-  
-  [INFO] Probing dataset: events
-  [FAIL] events — Lineage probe: FAIL (upstream dataset 'raw_events_old' missing)
-  
-  [INFO] Probing dataset: transactions
-  [FAIL] transactions — Schema probe: FAIL (amount: int, expected decimal(12,2))
-  
-  [INFO] Generated incident reports: outbox/
-  [INFO] Generated fix artifacts: outbox/
+  [FAIL] events — lineage_integrity: Broken lineage: declared upstream 'raw_events_old' missing from the graph
+  [FAIL] orders_archive — freshness: Dataset is stale: last modified 45 days ago (SLA: 24h)
+  [FAIL] transactions — schema_contract: Schema drift on 'amount': expected decimal(12,2), got int
+  [PASS] transactions_warehouse — freshness OK, lineage_integrity OK
+  [PASS] users — freshness OK, lineage_integrity OK
   ```
 
-- **1:00–1:05:** List outbox directory
+- **1:00–1:05:** The digest below it, on first sight of each fault
+  ```
+  NEW: ...demo.public.events,PROD) / lineage_integrity — Broken lineage: declared upstream 'raw_events_old' missing from the graph
+  NEW: ...demo.public.orders_archive,PROD) / freshness — Dataset is stale: last modified 45 days ago (SLA: 24h)
+  NEW: ...demo.public.transactions,PROD) / schema_contract — Schema drift on 'amount': expected decimal(12,2), got int
+  ```
+
+- **1:05–1:15:** Show one incident report, scrolling to the provenance table
   ```bash
-  ls -la outbox/
-  # incident_orders_archive_*.md
-  # incident_events_*.md
-  # incident_transactions_*.md
-  # schema_patch_transactions_warehouse.yaml
-  # schema_drift_transactions_warehouse.diff
-  # commit_message_transactions_warehouse.txt
-  ```
-
-- **1:05–1:15:** Show one incident report (scroll)
-  ```bash
+  ls outbox/
   cat outbox/incident_orders_archive_*.md
-  # ## Incident Report: orders_archive
-  # ### What Broke
-  # Dataset: orders_archive (data-eng owner)
-  # Probe: FreshnessProbe
-  # Status: FAIL (NEW)
-  # 
-  # ### Evidence
-  # Last modified: 2026-06-18 (45 days old)
-  # SLA: 24h
-  # 
-  # ### Root-Cause Candidate
-  # Dataset: orders_archive (0 hops, is the failure)
-  # 
-  # ### Next Steps
-  # @data-eng: Check data pipeline; last run was 45 days ago.
+  ```
+  ```markdown
+  ### What Broke
+  Dataset: **orders_archive**
+  Owner(s): @data-eng
+
+  ### Evidence
+  - **Failing probe**: `freshness`
+  - **Probe**: Dataset is stale: last modified 45 days ago (SLA: 24h)
+  - **Last modified**: 2026-06-18 20:18 UTC (45 days old)
+
+  ### Root-Cause Candidate
+  Dataset: **orders_archive** — is the failure
+  Distance from failure: 0 hops
+
+  ### Provenance
+  | Fact source (tool) | Entity | Read at |
+  |---|---|---|
+  | `gms:datasetProperties.lastModified` | `urn:...orders_archive,PROD)` | 2026-08-02T20:21:02+00:00 |
+  | `mcp:get_lineage` | `urn:...orders_archive,PROD)` | 2026-08-02T20:21:02+00:00 |
   ```
 
 ### Narrator Script
 ```
-"First run: the agent runs three probes—freshness, lineage, and schema—
-against each dataset. It catches all three faults in real time:
+"First run: three probes — freshness, lineage, and schema — against every
+dataset in the estate. It catches all three faults and passes both healthy
+controls.
 
-[pause for terminal output]
-
-Notice: users passes (healthy control). The other three fail loudly with 
-actionable messages. The agent generates incident reports with owner 
-@mentions so the right person sees it immediately."
+Every incident report ends with a provenance table: the exact tool, entity
+and timestamp behind each claim. Nothing in the evidence is generated
+text — if it's in the report, it came out of the graph."
 ```
 
 ### Timing: ~35 sec
@@ -150,61 +149,38 @@ actionable messages. The agent generates incident reports with owner
 ## Scene 4: Day 2 Run — Delta-Aware State History (1:15–1:55)
 
 ### Shot List
-- **1:15–1:20:** Narrator sets up: "I'll run the agent again without fixing anything."
+- **1:15–1:20:** "I'll run it again without fixing anything." Same command:
   ```bash
-  # (same command as before)
   python -m datahub_rail.agent --config config/probes.yaml \
     --datahub-url http://localhost:8080
   ```
 
-- **1:20–1:35:** Show terminal output with state digest (scroll slowly)
+- **1:20–1:40:** Same probe lines, but the digest has changed
   ```
-  [INFO] Probing dataset: users
-  [PASS] users — freshness OK, lineage OK, schema OK
-  
-  [INFO] Probing dataset: orders_archive
-  [FAIL] orders_archive — Freshness probe: FAIL
-         Status: CHRONIC (still failing on day 2, deprioritized)
-  
-  [INFO] Probing dataset: events
-  [FAIL] events — Lineage probe: FAIL
-         Status: CHRONIC (still failing on day 2, deprioritized)
-  
-  [INFO] Probing dataset: transactions
-  [FAIL] transactions — Schema probe: FAIL
-         Status: CHRONIC (still failing on day 2, deprioritized)
-  
-  [INFO] State history updated: state_history.jsonl
+  CHRONIC: ...demo.public.events,PROD) / lineage_integrity (day 2) — Broken lineage: declared upstream 'raw_events_old' missing from the graph
+  CHRONIC: ...demo.public.orders_archive,PROD) / freshness (day 2) — Dataset is stale: last modified 45 days ago (SLA: 24h)
+  CHRONIC: ...demo.public.transactions,PROD) / schema_contract (day 2) — Schema drift on 'amount': expected decimal(12,2), got int
   ```
 
-- **1:35–1:45:** Show the state history digest
+- **1:40–1:50:** The history behind it
   ```bash
-  cat state_history.jsonl | tail -20
-  # Shows NEW vs CHRONIC classifications
-  # Demonstrates delta-aware alerting: only fires on change
+  tail -3 state_history.jsonl
   ```
 
-- **1:45–1:55:** Narrator explains the key innovation
-  ```
-  "Notice: day 2 still shows failures, but they're marked CHRONIC. 
-  The agent fires alerts on meaningful *change*, not raw thresholds. 
-  This is the core originality: delta-aware alerting eliminates alert 
-  fatigue while preserving urgency signals. If a failure recovers, 
-  the agent fires a RECOVERED alert to close the incident."
-  ```
+- **1:50–1:55:** Optional recovery beat — if you want to show `RECOVERED`,
+  re-seed `orders_archive` with a current timestamp and run once more.
 
 ### Narrator Script
 ```
-"Day 2 run without fixing anything. Same three datasets fail, but 
-notice the status: CHRONIC. The alert doesn't fire again because 
-nothing changed. This is the core innovation: fire on meaningful 
-*change*, not raw thresholds.
+"Day 2, nothing fixed. The same three datasets fail — but the digest now
+says CHRONIC, day 2, instead of NEW. Nothing was backdated and no clock
+was faked; the difference is the state history the first run wrote.
 
-Compare this to traditional monitoring that fires every time a 
-threshold is crossed. By day 2, you're drowning in alerts and 
-everyone stops listening. DataHub Rail only fires when state 
-changes—when something breaks, when it stays broken (CHRONIC), 
-or when it recovers."
+That's the core idea: fire on meaningful change, not raw thresholds.
+Traditional monitoring re-fires every time the threshold is crossed, and
+by day two everyone has stopped reading the alerts. This agent fires when
+something breaks, tells you when it's still broken, and closes it out with
+RECOVERED when it heals."
 ```
 
 ### Timing: ~40 sec
@@ -214,56 +190,48 @@ or when it recovers."
 ## Scene 5: Schema-Drift Fix Artifacts (1:55–2:30)
 
 ### Shot List
-- **1:55–2:00:** Explain what's in outbox
+- **1:55–2:00:** What landed in the outbox
   ```bash
-  ls outbox/ | grep transactions
-  # schema_patch_transactions_warehouse.yaml
-  # schema_drift_transactions_warehouse.diff
+  ls outbox/ | grep transactions_warehouse
   # commit_message_transactions_warehouse.txt
+  # schema_drift_transactions_warehouse.diff
+  # schema_patch_transactions_warehouse.yaml
   ```
 
-- **2:00–2:10:** Show the patch artifact
-  ```bash
-  cat outbox/schema_patch_transactions_warehouse.yaml
-  # ---
-  # operations:
-  #   - op: replace
-  #     path: /fields/amount/type
-  #     value: int
-  ```
-
-- **2:10–2:20:** Show the diff artifact
+- **2:00–2:10:** The diff
   ```bash
   cat outbox/schema_drift_transactions_warehouse.diff
-  # --- before
-  # +++ after
-  #  amount: decimal(12,2)
-  # +amount: int
+  ```
+  ```diff
+  --- a/contracts/transactions_warehouse.schema.yaml
+  +++ b/contracts/transactions_warehouse.schema.yaml
+  @@ -8,4 +8,4 @@
+     - field_path: id
+       type: bigint
+     - field_path: amount
+  -    type: decimal(12,2)
+  +    type: int
   ```
 
-- **2:20–2:30:** Show the commit message
+- **2:10–2:20:** The money shot — it actually applies
+  ```bash
+  git apply --check outbox/schema_drift_transactions_warehouse.diff && echo "applies cleanly"
+  # applies cleanly
+  ```
+
+- **2:20–2:30:** The commit message
   ```bash
   cat outbox/commit_message_transactions_warehouse.txt
-  # chore: Update schema for transactions_warehouse to match upstream
-  # 
-  # Detected schema-contract drift:
-  # - Field: amount
-  # - Upstream type: int
-  # - Expected type: decimal(12,2)
-  # - Fault class: SCHEMA_DRIFT
-  # - Detection method: SchemaProbe
-  # 
-  # Downstream consumer: transactions_warehouse
-  # Owner: @data-consumer-team
   ```
 
 ### Narrator Script
 ```
-"For schema drift, the agent emits PR-ready fix artifacts: a YAML 
-patch for config changes, a unified diff showing the type mismatch, 
-and a commit message linking the fault class, detection method, and 
-owner. Judges can review these artifacts in the outbox/ directory 
-and verify reproducibility."
+"For schema drift the agent emits PR-ready artifacts: a YAML patch, a
+unified diff against the downstream contract that's committed in the repo,
+and a commit message linking fault class, detection method and owner.
+
+And 'PR-ready' is checkable — git apply accepts the diff. The test suite
+applies it for real on every run, so it can't rot."
 ```
 
 ### Timing: ~35 sec
@@ -273,34 +241,26 @@ and verify reproducibility."
 ## Scene 6: Closing Remarks (2:30–2:50)
 
 ### Shot List
-- **2:30–2:40:** Show the sample-outputs/ directory
+- **2:30–2:40:** The committed sample outputs
   ```bash
   ls sample-outputs/
-  # All incident reports, patches, diffs committed for reproducibility
   ```
-
-- **2:40–2:50:** Show README quick-start
+- **2:40–2:50:** Tests green
   ```bash
-  cat README.md | head -50
-  # "Quick Start: From Zero to Demo"
-  # Shows reproducibility path
+  python -m pytest tests/ -q | tail -1
+  # 131 passed
   ```
 
 ### Narrator Script
 ```
-"The entire demo is reproducible: all sample outputs are committed 
-to the repo. A judge can clone, install, run the seeder, run the 
-agent, and see the exact same reports and artifacts in seconds.
+"The whole demo is reproducible: sample-outputs holds the artifacts from a
+real two-run pass, regenerated by a script rather than written by hand.
 
-DataHub Rail Agent brings three ideas to data monitoring:
-1. Capture-based freshness probes measure data age directly, not job logs.
-2. Delta-aware state history fires on meaningful change, eliminating alert fatigue.
-3. Lineage-walk root-cause triage with owner @mentions so blame lands 
-   on the real culprit.
-
-The code is production-ready: 86 tests, never-raise contracts, and 
-an upstream contribution to the DataHub MCP Server repository showing 
-these patterns can be reused."
+Three ideas: capture-based freshness probes that measure data age instead
+of reading job logs; delta-aware state history that fires on change; and
+lineage-walk triage with owner mentions so blame lands on the real culprit.
+131 tests, never-raise contracts, and an upstream patterns guide contributed
+back to the DataHub MCP Server repo."
 ```
 
 ### Timing: ~20 sec
@@ -319,45 +279,37 @@ these patterns can be reused."
 | Closing | 20 sec |
 | **TOTAL** | **170 sec** |
 
-**Buffer:** 10 seconds (under 3-minute target of 180 sec)
+**Buffer:** 10 seconds (under the 3-minute target).
 
 ---
 
 ## Production Notes
 
-1. **Screen Resolution:** Record at 1920x1080 or higher for text readability
-2. **Font Size:** Terminal font should be at least 14pt; IDE themes with high contrast
-3. **Pacing:** Scroll terminal output slowly (~2 sec per command) so judges can read
-4. **Audio:** Speak clearly; background music optional but can help (no copyright issues)
-5. **Callouts:** Use terminal highlighting or cursor circles to emphasize key lines
-6. **Captions:** Add timestamps in lower-left corner (0:00, 1:00, 2:00, etc.)
+1. **Screen Resolution:** record at 1920x1080 or higher
+2. **Font Size:** terminal at 14pt or larger
+3. **Pacing:** scroll terminal output slowly so judges can read
+4. **Long URNs:** the digest lines are wide — either widen the terminal or
+   accept the wrap; don't shrink the font below readable
+5. **First-run latency:** `uvx` fetches the MCP server on first use. Warm it
+   before recording so the take isn't dead air
+6. **Captions:** timestamps in the lower-left (0:00, 1:00, 2:00)
 
 ---
 
 ## Reproducibility Verification
 
-Judges can verify this entire demo by running:
-
 ```bash
-git clone https://github.com/<org>/datahub-rail-agent
+git clone https://github.com/fivedollarfridays/datahub-rail-agent.git
 cd datahub-rail-agent
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]" -c constraints.txt
 
-# Start DataHub
-docker run -d -p 8080:8080 acryldata/datahub-gms:latest
+datahub docker quickstart
 
-# Start MCP server (in separate terminal)
-mcp-server-datahub --datahub-url http://localhost:8080
-
-# Seed demo
 DATAHUB_GMS_URL=http://localhost:8080 python scripts/seed_demo_estate.py
-
-# Run day 1
+python -m datahub_rail.agent --config config/probes.yaml --datahub-url http://localhost:8080
 python -m datahub_rail.agent --config config/probes.yaml --datahub-url http://localhost:8080
 
-# Review outputs
-ls -la outbox/ && cat outbox/incident_*.md
+ls outbox/ && cat outbox/incident_*.md
+git apply --check outbox/schema_drift_transactions_warehouse.diff
 ```
-
-Expected output matches the video exactly. All sample outputs in `sample-outputs/` are committed for judge reference.
