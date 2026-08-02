@@ -101,6 +101,11 @@ async def _write_drift_artifacts(graph, config: dict, entry: dict, outbox: Path)
         (f["type"] for f in schema.fields if f["field_path"] == field_name), "unknown"
     )
     downstream = config.get("drift_downstream_name", f"{entry['name']}_warehouse")
+    contract_path = config.get(
+        "drift_contract_path", f"contracts/{downstream}.schema.yaml"
+    )
+    contract_file = Path(contract_path)
+    contract_text = contract_file.read_text() if contract_file.exists() else None
 
     await DriftArtifactGenerator().generate_all_artifacts(
         {
@@ -110,6 +115,8 @@ async def _write_drift_artifacts(graph, config: dict, entry: dict, outbox: Path)
             "upstream_dataset": entry["name"],
             "downstream_dataset": downstream,
             "upstream_owner": (await graph.get_entity(entry["urn"])).get("owner", ""),
+            "contract_path": contract_path,
+            "contract_text": contract_text,
         },
         outbox,
     )

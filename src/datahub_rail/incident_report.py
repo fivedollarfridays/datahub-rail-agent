@@ -95,4 +95,4 @@ def render_report(report_data: dict) -> str:
         "---",
         "*All facts in this report sourced from DataHub context graph reads.*",
     ]
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"

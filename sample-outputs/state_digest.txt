@@ -1,0 +1,3 @@
+CHRONIC: urn:li:dataset:(urn:li:dataPlatform:postgres,demo.public.events,PROD) / lineage_integrity (day 2) — Broken lineage: declared upstream 'raw_events_old' missing from the graph
+CHRONIC: urn:li:dataset:(urn:li:dataPlatform:postgres,demo.public.orders_archive,PROD) / freshness (day 2) — Dataset is stale: last modified 45 days ago (SLA: 24h)
+CHRONIC: urn:li:dataset:(urn:li:dataPlatform:postgres,demo.public.transactions,PROD) / schema_contract (day 2) — Schema drift on 'amount': expected decimal(12,2), got int
