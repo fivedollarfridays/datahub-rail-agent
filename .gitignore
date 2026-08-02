@@ -1,2 +1,10 @@
 .dhenv/
 __pycache__/
+
+# >>> paircoder managed
+.paircoder/.cli_version
+.paircoder/cache/**
+.paircoder/feedback/calibration.json
+.paircoder/history/benchmarks/matrix/**
+.paircoder/telemetry/**
+# <<< paircoder managed
