@@ -1,9 +1,8 @@
 """Integration: schema-drift detection → fix artifacts."""
 import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 from datahub_rail.drift_artifacts import DriftArtifactGenerator
-from datahub_rail.probes import SchemaProbe, ProbeResult
+from datahub_rail.probes import SchemaProbe
 
 
 @pytest.mark.asyncio

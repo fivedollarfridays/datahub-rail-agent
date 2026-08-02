@@ -1,8 +1,6 @@
 """State history persistence: JSONL appending with bounded rotation."""
 import json
 import pytest
-from pathlib import Path
-from datetime import datetime, timezone
 from datahub_rail.state_history import StateHistory
 
 

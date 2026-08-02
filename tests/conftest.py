@@ -131,8 +131,6 @@ def mock_client_deep_lineage(monkeypatch):
     client.walk_upstream = AsyncMock()
 
     # Simulate multi-hop walk: each call returns next level
-    calls = []
-
     async def multi_hop_walk(urn, hops=1):
         """Simulate walking upstream multiple times."""
         # For this test, simulate a chain: events -> events-raw -> kafka-source -> raw-source

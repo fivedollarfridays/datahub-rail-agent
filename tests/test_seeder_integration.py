@@ -32,7 +32,6 @@ async def test_seed_demo_estate_end_to_end(mock_aiohttp, monkeypatch):
     """GREEN: Full seeder run creates healthy controls + 3 fault classes."""
     # Patch the seeder to use mocked session
     import datahub_rail.seeder
-    import seed_demo_estate as seed_module
 
     async def mock_connect(self):
         self.session = mock_aiohttp

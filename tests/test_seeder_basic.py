@@ -1,7 +1,6 @@
 """Tests for basic dataset seeding (ingest, schema, lineage)."""
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 from datahub_rail.seeder import DatasetSeeder
 

@@ -1,7 +1,6 @@
 """State history digest: render NEW / chronic / recovered transitions."""
 import json
 import pytest
-from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from datahub_rail.state_history import StateHistory, StateDigest
 
@@ -43,8 +42,6 @@ def test_digest_first_failure_marked_as_new(tmp_history_file):
 
 def test_digest_chronic_failure_collapsed_to_day_n(tmp_history_file):
     """Multiple consecutive failures collapsed to 'still failing (day N)'."""
-    history = StateHistory(path=tmp_history_file, max_entries=100)
-
     # Simulate 3 consecutive days of same failure
     base_time = datetime.now(timezone.utc)
     for day in range(3):

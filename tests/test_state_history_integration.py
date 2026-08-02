@@ -1,7 +1,5 @@
 """Integration: state history with probe results."""
-import json
 import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock
 from datahub_rail.state_history import StateHistory, StateDigest
 from datahub_rail.probes import ProbeResult, ProbeRegistry
