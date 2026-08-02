@@ -1,4 +1,7 @@
-"""Config-driven probe registry for the health monitor agent."""
+# Config-driven probe registry for the health monitor agent.
+#
+# Point the agent at your own estate by editing this file: each entry is
+# instantiated by name from the probe registry in datahub_rail.probes.
 
 probes:
   - name: freshness
@@ -15,4 +18,12 @@ probes:
     params:
       expected_fields:
         amount: decimal(12,2)
-        id: bigint
+
+# Datasets whose downstream schema contract is enforced. Datasets outside
+# this list skip the schema probe, so a table with no `amount` column is not
+# reported as drift.
+schema_contract_datasets:
+  - urn:li:dataset:(urn:li:dataPlatform:postgres,demo.public.transactions,PROD)
+
+# Search query used to discover the estate under test.
+discovery_query: demo.public

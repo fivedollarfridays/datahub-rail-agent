@@ -13,3 +13,7 @@ __pycache__/
 .venv/
 .paircoder/engage/runs/
 .dhenv/
+
+# agent run artifacts (committed copies live in sample-outputs/)
+outbox/
+state_history.jsonl

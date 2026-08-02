@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Seed demo data estate with 3 fault classes and healthy controls."""
 import asyncio
+import os
 import sys
 from datetime import datetime, timezone, timedelta
 
@@ -169,13 +170,18 @@ async def seed_demo_estate(gms_url: str = "http://localhost:8080") -> dict:
 
 async def main() -> int:
     """Run the seed script."""
+    gms_url = os.environ.get("DATAHUB_GMS_URL", "http://localhost:8080")
     try:
-        result = await seed_demo_estate()
-        print("✓ Demo estate seeded successfully")
-        print(f"  Healthy controls: {len(result['healthy_controls'])}")
-        print(f"  Fault classes: {len(result['fault_classes'])}")
-        for fault in result["fault_classes"]:
-            print(f"    - {fault['type']}: {fault['description']}")
+        result = await seed_demo_estate(gms_url=gms_url)
+        print("✓ Seeded dataset: users (healthy control)")
+        print("✓ Seeded dataset: orders_archive (stale: 45 days old)")
+        print("✓ Seeded dataset: events (broken lineage: upstream soft-deleted)")
+        print("✓ Seeded dataset: transactions (schema drift: int vs decimal(12,2))")
+        print("✓ Seeded dataset: transactions_warehouse (downstream consumer)")
+        print(
+            f"\nSeeded {len(result['healthy_controls'])} healthy control(s) "
+            f"and {len(result['fault_classes'])} fault class(es) into {gms_url}"
+        )
         return 0
     except Exception as e:
         print(f"✗ Seed failed: {e}", file=sys.stderr)

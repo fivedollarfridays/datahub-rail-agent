@@ -15,6 +15,7 @@ def mock_aiohttp():
     """Mock aiohttp session."""
     mock_session = MagicMock()
     mock_response = AsyncMock()
+    mock_response.status = 200
     mock_response.json = AsyncMock(return_value={"data": {}})
 
     class AsyncContextManager:

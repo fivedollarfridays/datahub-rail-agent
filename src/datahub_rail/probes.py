@@ -4,6 +4,8 @@ from typing import Optional
 from datetime import datetime, timezone
 from abc import ABC, abstractmethod
 
+from .urns import name_from_urn
+
 
 @dataclass
 class ProbeResult:
@@ -54,17 +56,44 @@ class FreshnessProbe(Probe):
 
 
 class LineageProbe(Probe):
-    """Lineage probe: detects missing/broken upstream edges."""
+    """Lineage probe: detects declared upstream edges that no longer resolve.
+
+    A dataset that declares no upstream is a source table and passes. A
+    dataset that declares an edge which the graph cannot resolve (the target
+    was deleted) is the broken-lineage fault and fails loudly.
+    """
 
     async def check(self, client, dataset_urn: str) -> ProbeResult:
         """Check if upstream lineage edges are intact."""
         try:
-            lineage = await client.walk_upstream(dataset_urn, hops=1)
+            declared = None
+            if hasattr(client, "get_declared_upstreams"):
+                declared = await client.get_declared_upstreams(dataset_urn)
 
-            if not lineage.upstream:
+            lineage = await client.walk_upstream(dataset_urn, hops=1)
+            resolved = {n["urn"] for n in lineage.upstream}
+
+            if declared is None:
+                # Client cannot report declared edges: fall back to presence check.
+                if not lineage.upstream:
+                    return ProbeResult(
+                        status="fail",
+                        message="Dataset has no upstream dependencies (lineage missing or broken)",
+                    )
+                return ProbeResult(status="pass", message="Lineage integrity verified")
+
+            if not declared:
+                return ProbeResult(
+                    status="pass",
+                    message="No declared upstream dependencies (source dataset)",
+                )
+
+            dangling = [u for u in declared if u not in resolved]
+            if dangling:
+                names = ", ".join(f"'{name_from_urn(u)}'" for u in dangling)
                 return ProbeResult(
                     status="fail",
-                    message="Dataset has no upstream dependencies (lineage missing or broken)",
+                    message=f"Broken lineage: declared upstream {names} missing from the graph",
                 )
 
             return ProbeResult(status="pass", message="Lineage integrity verified")

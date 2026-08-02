@@ -11,8 +11,8 @@ def mock_aiohttp():
     """Mock aiohttp session with context manager support."""
     mock_session = MagicMock()
     mock_response = AsyncMock()
-    mock_response.json = AsyncMock(return_value={"data": {}})
     mock_response.status = 200
+    mock_response.json = AsyncMock(return_value={"data": {}})
 
     class AsyncContextManager:
         async def __aenter__(self):
@@ -57,6 +57,7 @@ async def test_detect_stale_via_freshness_api(mock_aiohttp):
 
     # Mock return value for freshness check
     mock_response = AsyncMock()
+    mock_response.status = 200
     mock_response.json = AsyncMock(return_value={
         "data": {
             "isStale": True,
@@ -116,6 +117,7 @@ async def test_broken_lineage_detectable(mock_aiohttp):
 
     # Mock response showing broken lineage (upstream node marked as deleted)
     mock_response = AsyncMock()
+    mock_response.status = 200
     mock_response.json = AsyncMock(return_value={
         "data": {
             "upstream": [

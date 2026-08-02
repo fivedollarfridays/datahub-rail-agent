@@ -4,6 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime, timezone
 
+from .incident_report import render_report
+from .urns import platform_from_urn
+
 
 @dataclass
 class Provenance:
@@ -27,36 +30,18 @@ class TriageEngine:
         probe_status: str,
         probe_message: str,
         outbox_dir: Optional[Path | str] = None,
+        provenance: Optional[list["Provenance"]] = None,
     ) -> str:
         """Generate incident report for a failing dataset."""
         outbox_dir = Path(outbox_dir) if outbox_dir else Path("outbox")
 
-        # Walk upstream to collect lineage
+        # Walk upstream; every collected ancestor is a root-cause candidate
         nodes = await self._walk_upstream_with_distance(client, failing_dataset_urn, max_hops=5)
-
-        # Filter to failing nodes (in this version, we assume root cause is provided)
-        # In a real scenario, you'd check probe results for each node
-        if not nodes:
-            failing_nodes = []
-        else:
-            failing_nodes = nodes  # All upstream nodes considered potentially failing
-
-        # Pick root cause
-        root_cause = self._pick_root_cause(failing_nodes) if failing_nodes else {}
-
-        # Gather evidence
+        root_cause = self._resolve_root_cause(
+            nodes, failing_dataset_urn, failing_dataset_name, dataset_owner
+        )
         evidence = await self._gather_evidence(client, failing_dataset_urn)
 
-        # Build lineage path
-        lineage_path = [
-            {
-                "name": n[0].get("name", "unknown"),
-                "platform": n[0].get("platform", "unknown"),
-            }
-            for n in nodes
-        ]
-
-        # Build report data
         report_data = {
             "failing_dataset": {
                 "urn": failing_dataset_urn,
@@ -64,13 +49,20 @@ class TriageEngine:
                 "owner": dataset_owner,
             },
             "root_cause": root_cause,
-            "lineage_path": lineage_path,
+            "lineage_path": [
+                {
+                    "name": n[0].get("name", "unknown"),
+                    "platform": n[0].get("platform", "unknown"),
+                }
+                for n in nodes
+            ],
+            "probe_name": probe_name,
             "probe_message": probe_message,
             "last_modified": evidence.get("last_modified"),
+            "provenance": provenance or [],
         }
 
-        # Render markdown
-        markdown = self._render_report(report_data)
+        markdown = render_report(report_data)
 
         # Save to outbox
         outbox_dir.mkdir(parents=True, exist_ok=True)
@@ -110,6 +102,25 @@ class TriageEngine:
 
         # Return collected upstream nodes sorted by URN for deterministic order
         return sorted(visited.values(), key=lambda x: x[0]["urn"])
+
+    def _resolve_root_cause(
+        self,
+        nodes: list[tuple[dict, int]],
+        failing_dataset_urn: str,
+        failing_dataset_name: str,
+        dataset_owner: str,
+    ) -> dict:
+        """Deepest failing ancestor, or the dataset itself when it has none."""
+        if nodes:
+            return self._pick_root_cause(nodes)
+        return {
+            "name": failing_dataset_name,
+            "urn": failing_dataset_urn,
+            "platform": platform_from_urn(failing_dataset_urn),
+            "owner": dataset_owner,
+            "distance": 0,
+            "is_self": True,
+        }
 
     def _pick_root_cause(
         self,
@@ -162,56 +173,3 @@ class TriageEngine:
             "probe_status": status,
             "probe_message": message,
         }
-
-    def _render_report(self, report_data: dict) -> str:
-        """Render incident report to markdown."""
-        lines = []
-        lines.append("## Incident Report")
-        lines.append("")
-
-        failing = report_data.get("failing_dataset", {})
-        root_cause = report_data.get("root_cause", {})
-
-        # What broke
-        lines.append("### What Broke")
-        lines.append(f"Dataset: **{failing.get('name', 'unknown')}**")
-        lines.append(f"URN: `{failing.get('urn', 'unknown')}`")
-        if failing.get("owner"):
-            owners = failing["owner"]
-            owner_mentions = ", ".join(f"@{o.strip()}" for o in owners.split(","))
-            lines.append(f"Owner(s): {owner_mentions}")
-        lines.append("")
-
-        # Evidence
-        lines.append("### Evidence")
-        probe_msg = report_data.get("probe_message", "Unknown issue")
-        lines.append(f"- **Probe**: {probe_msg}")
-        if report_data.get("last_modified"):
-            lines.append(f"- **Last modified**: {report_data['last_modified']} (unix timestamp)")
-        lineage_path = report_data.get("lineage_path", [])
-        if lineage_path:
-            path_str = " → ".join(n.get("name", "?") for n in lineage_path)
-            lines.append(f"- **Lineage path**: {path_str}")
-        lines.append("")
-
-        # Root cause candidate
-        lines.append("### Root-Cause Candidate")
-        lines.append(f"Dataset: **{root_cause.get('name', 'unknown')}**")
-        lines.append(f"Platform: {root_cause.get('platform', 'unknown')}")
-        lines.append(f"Distance from failure: {root_cause.get('distance', '?')} hops")
-        if root_cause.get("owner"):
-            lines.append(f"Owner: @{root_cause['owner']}")
-        lines.append("")
-
-        # Next step
-        lines.append("## Next Steps")
-        lines.append("1. Contact root-cause owner to investigate data pipeline")
-        lines.append("2. Check for recent pipeline changes or job failures")
-        lines.append("3. Validate upstream dependencies are operational")
-        lines.append("")
-
-        # Provenance note
-        lines.append("---")
-        lines.append("*All facts in this report sourced from DataHub context graph reads.*")
-
-        return "\n".join(lines)

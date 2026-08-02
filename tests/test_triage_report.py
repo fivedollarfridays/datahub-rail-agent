@@ -1,11 +1,9 @@
 """Incident report rendering to markdown."""
-from datahub_rail.triage import TriageEngine
+from datahub_rail.incident_report import render_report
 
 
 def test_render_incident_report():
     """Report includes what broke, evidence, root-cause, owners, next step."""
-    engine = TriageEngine()
-
     report_data = {
         "failing_dataset": {
             "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.events,PROD)",
@@ -27,7 +25,7 @@ def test_render_incident_report():
         "last_modified": 1722595200,
     }
 
-    markdown = engine._render_report(report_data)
+    markdown = render_report(report_data)
 
     # Should include key sections
     assert "## Incident Report" in markdown
@@ -40,8 +38,6 @@ def test_render_incident_report():
 
 def test_render_report_with_multiple_owners():
     """Report mentions multiple owners if applicable."""
-    engine = TriageEngine()
-
     report_data = {
         "failing_dataset": {
             "name": "analytics.events",
@@ -57,7 +53,7 @@ def test_render_report_with_multiple_owners():
         "last_modified": None,
     }
 
-    markdown = engine._render_report(report_data)
+    markdown = render_report(report_data)
 
     assert "@analytics-team" in markdown or "analytics-team" in markdown
     assert "@kafka-ops" in markdown or "kafka-ops" in markdown
