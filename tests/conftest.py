@@ -1,7 +1,17 @@
-"""Shared fixtures for recorded MCP responses."""
+"""Shared fixtures for recorded MCP responses, and the suite's network block."""
 from pathlib import Path
 
 import pytest
+
+from tests.hermetic import install as install_network_block
+
+
+@pytest.fixture(autouse=True)
+def _hermetic(request, monkeypatch):
+    """Block sockets for every test unless it opts out with allow_network."""
+    if request.node.get_closest_marker("allow_network"):
+        return
+    install_network_block(monkeypatch)
 
 
 @pytest.fixture

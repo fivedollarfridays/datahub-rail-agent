@@ -47,6 +47,54 @@ def render_evidence(report_data: dict) -> list[str]:
     return lines
 
 
+def _hours(age_hours: float) -> str:
+    """Render an age in whole hours."""
+    return f"{int(round(age_hours))}h"
+
+
+def _edge_break_row(node: dict, role: str) -> str:
+    """One row of the edge-break timestamp table."""
+    return (
+        f"| `{node['name']}` | {role} | {format_timestamp(node['last_modified'])}"
+        f" — {_hours(node['age_hours'])} old |"
+    )
+
+
+def render_edge_break(finding: dict) -> list[str]:
+    """Render the producer-healthy / delivery-broken callout.
+
+    Emitted only when the graph shows a stale output behind fresh producers.
+    Absent that finding this contributes nothing, so reports that do not have
+    the fault are unchanged.
+    """
+    if not finding:
+        return []
+
+    failing = finding["failing"]
+    upstreams = finding["upstreams"]
+    lines = [
+        "### Producer Healthy, Delivery Broken",
+        f"**{failing['name']}** is {_hours(failing['age_hours'])} old against a"
+        f" {finding['sla_hours']}h SLA, but every immediate upstream is inside SLA."
+        " The producer ran; the output did not arrive.",
+        "",
+        "| Node | Role | Last capture (graph) |",
+        "|---|---|---|",
+        _edge_break_row(failing, "failing output"),
+    ]
+    lines += [_edge_break_row(u, "immediate upstream") for u in upstreams]
+    lines += [
+        "",
+        f"The newest upstream moved {_hours(finding['gap_hours'])} more recently"
+        " than this output changed. The break is on the edge between them —"
+        " a missing config file, an unmet prerequisite, or an expired"
+        " credential — not the scheduler and not the producing job, whose run"
+        " history will read green throughout.",
+        "",
+    ]
+    return lines
+
+
 def render_root_cause(root_cause: dict) -> list[str]:
     """Render the Root-Cause Candidate section."""
     suffix = " — is the failure" if root_cause.get("is_self") else ""
@@ -82,6 +130,7 @@ def render_report(report_data: dict) -> str:
     lines = ["## Incident Report", ""]
     lines += render_what_broke(report_data.get("failing_dataset", {}))
     lines += render_evidence(report_data)
+    lines += render_edge_break(report_data.get("edge_break") or {})
     lines += render_root_cause(report_data.get("root_cause", {}))
     lines += [
         "## Next Steps",

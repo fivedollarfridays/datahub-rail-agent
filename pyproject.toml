@@ -37,6 +37,9 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --tb=short"
+markers = [
+    "allow_network: test may open sockets; every other test is network-blocked",
+]
 
 [tool.coverage.run]
 source = ["src"]
