@@ -2,6 +2,8 @@
 import difflib
 from pathlib import Path
 
+from .naming import slugify_dataset_name
+
 
 def _default_contract(field_name: str, expected_type: str) -> str:
     """Fallback contract text when no committed contract file is supplied."""
@@ -37,7 +39,7 @@ fields:
 Run this patch against your downstream dataset configuration.
 """
 
-        patch_file = outbox_dir / f"schema_patch_{downstream_dataset}.yaml"
+        patch_file = outbox_dir / f"schema_patch_{slugify_dataset_name(downstream_dataset)}.yaml"
         patch_file.write_text(content)
         return patch_file
 
@@ -71,7 +73,7 @@ Run this patch against your downstream dataset configuration.
             )
         )
 
-        diff_file = outbox_dir / f"schema_drift_{downstream}.diff"
+        diff_file = outbox_dir / f"schema_drift_{slugify_dataset_name(downstream)}.diff"
         diff_file.write_text(diff_content)
         return diff_file
 
@@ -99,7 +101,7 @@ Fault class: schema-contract-drift
 Detection method: SchemaProbe (expected vs actual type check)
 """
 
-        msg_file = outbox_dir / f"commit_message_{downstream}.txt"
+        msg_file = outbox_dir / f"commit_message_{slugify_dataset_name(downstream)}.txt"
         msg_file.write_text(msg_content)
         return msg_file
 

@@ -15,6 +15,14 @@ from mcp.client.stdio import stdio_client
 from .types import Dataset, LineageResult, SchemaMetadata
 from .urns import name_from_urn, platform_from_urn
 
+#: `search` spans every entity type, so an estate token that fuzzy-matches a
+#: tag or glossary term would be probed as a dataset. Notably the agent's own
+#: write-back tags (`urn:li:tag:rail.status.*`) match a `rail`-shaped estate
+#: token and rank above real datasets.
+_DATASET_ENTITY_FILTER = "entity_type = dataset"
+
+_DATASET_URN_PREFIX = "urn:li:dataset:"
+
 
 class MCPClient:
     """Typed MCP client for DataHub context graph operations."""
@@ -93,14 +101,26 @@ class MCPClient:
         return {}
 
     async def list_datasets(self, query: str = "*", num_results: int = 50) -> list[Dataset]:
-        """List datasets via the `search` tool."""
+        """List datasets via the `search` tool, constrained to dataset entities.
+
+        The entity-type filter is applied server-side; the URN check is a
+        second line of defence so a filter regression cannot silently feed
+        tags or glossary terms into the probe loop.
+        """
         payload = await self._call(
-            "search", {"query": query, "num_results": num_results}
+            "search",
+            {
+                "query": query,
+                "filter": _DATASET_ENTITY_FILTER,
+                "num_results": num_results,
+            },
         )
         datasets = []
         for hit in payload.get("searchResults", []):
             entity = hit.get("entity", {})
             urn = entity.get("urn", "")
+            if not urn.startswith(_DATASET_URN_PREFIX):
+                continue
             props = entity.get("properties") or {}
             datasets.append(
                 Dataset(
