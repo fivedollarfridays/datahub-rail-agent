@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from .incident_report import render_report
+from .naming import slugify_dataset_name
 from .urns import platform_from_urn
 
 
@@ -67,7 +68,8 @@ class TriageEngine:
         # Save to outbox
         outbox_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        report_file = outbox_dir / f"incident_{failing_dataset_name}_{timestamp}.md"
+        slug = slugify_dataset_name(failing_dataset_name)
+        report_file = outbox_dir / f"incident_{slug}_{timestamp}.md"
         report_file.write_text(markdown)
 
         return markdown
