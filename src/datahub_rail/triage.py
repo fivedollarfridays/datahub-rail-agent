@@ -4,9 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime, timezone
 
+from .edge_break import detect_edge_break, is_past_sla
 from .incident_report import render_report
 from .naming import slugify_dataset_name
 from .urns import platform_from_urn
+
+DEFAULT_SLA_HOURS = 24
 
 
 @dataclass
@@ -32,6 +35,7 @@ class TriageEngine:
         probe_message: str,
         outbox_dir: Optional[Path | str] = None,
         provenance: Optional[list["Provenance"]] = None,
+        sla_hours: int = DEFAULT_SLA_HOURS,
     ) -> str:
         """Generate incident report for a failing dataset."""
         outbox_dir = Path(outbox_dir) if outbox_dir else Path("outbox")
@@ -42,6 +46,9 @@ class TriageEngine:
             nodes, failing_dataset_urn, failing_dataset_name, dataset_owner
         )
         evidence = await self._gather_evidence(client, failing_dataset_urn)
+        edge_break = await self._detect_edge_break(
+            client, evidence, failing_dataset_name, nodes, sla_hours
+        )
 
         report_data = {
             "failing_dataset": {
@@ -60,6 +67,7 @@ class TriageEngine:
             "probe_name": probe_name,
             "probe_message": probe_message,
             "last_modified": evidence.get("last_modified"),
+            "edge_break": edge_break,
             "provenance": provenance or [],
         }
 
@@ -104,6 +112,41 @@ class TriageEngine:
 
         # Return collected upstream nodes sorted by URN for deterministic order
         return sorted(visited.values(), key=lambda x: x[0]["urn"])
+
+    async def _detect_edge_break(
+        self,
+        client,
+        evidence: dict,
+        failing_dataset_name: str,
+        nodes: list[tuple[dict, int]],
+        sla_hours: int,
+    ) -> Optional[dict]:
+        """Is this a healthy producer with a broken delivery edge?
+
+        Reads immediate-upstream freshness only when the output is already
+        past SLA and has resolved upstreams, so runs without the fault make
+        exactly the graph calls they made before.
+        """
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        failing = {
+            "name": failing_dataset_name,
+            "last_modified": evidence.get("last_modified"),
+        }
+        immediate = [node for node, distance in nodes if distance == 1]
+        if not immediate or not is_past_sla(failing, sla_hours, now_ms):
+            return None
+
+        upstreams = []
+        for node in immediate:
+            upstream_evidence = await self._gather_evidence(client, node["urn"])
+            upstreams.append(
+                {
+                    "name": node.get("name", "unknown"),
+                    "last_modified": upstream_evidence.get("last_modified"),
+                }
+            )
+
+        return detect_edge_break(failing, upstreams, sla_hours, now_ms)
 
     def _resolve_root_cause(
         self,

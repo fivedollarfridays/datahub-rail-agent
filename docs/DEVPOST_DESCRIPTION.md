@@ -53,7 +53,7 @@ Opt in with `--writeback` and the agent publishes each verdict back onto the dat
 - **DataHub Integration:** DataHub MCP Server (Model Context Protocol)
 - **Data Structures:** Python dataclasses for typed graph entities; JSONL for state history
 - **Storage:** Local outbox/ directory for incidents and artifacts
-- **Testing:** pytest (158 tests, 89% line coverage) with recorded-response fixtures; ruff 0.16.1 and the full suite run in GitHub Actions
+- **Testing:** pytest (220 tests, 90% line coverage) with recorded-response fixtures and a socket-blocked, hermetic suite; ruff 0.16.1 and the full suite run in GitHub Actions
 
 ## DataHub Surfaces Used
 
@@ -90,7 +90,8 @@ This directly addresses the capture-reliability doctrine: *fail loud on outage, 
 
 ## Code Quality
 
-- **158 tests, 89% line coverage**, including tests that apply the generated patch with `git apply`
+- **220 tests, 90% line coverage**, including tests that apply the generated patch with `git apply`
+- **Hermetic test suite** — sockets are blocked for every test, with a canary that proves the block is live, so a fail-soft path cannot pass locally against a running service and fail in CI
 - **Never-raise contract** enforced throughout: no silent passes on reads, and loud failures on writes
 - **TDD throughout** — all features written test-first
 - **Architecture enforced** — file and function size limits checked in CI

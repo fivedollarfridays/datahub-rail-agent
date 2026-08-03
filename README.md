@@ -261,6 +261,37 @@ python scripts/writeback_smoke.py
 That runs the agent twice, reads the markers back out of GMS, and checks each
 dataset carries exactly one rail tag and a readable verdict.
 
+### Is the monitor itself still alive?
+
+A monitor that dies quietly looks exactly like a healthy estate: no alerts,
+no incidents, nothing to notice. `check-monitor` answers the question from
+capture evidence — the `rail.last_run` stamps the agent wrote into the graph
+— and never from a heartbeat file:
+
+```bash
+python -m datahub_rail.agent check-monitor --max-age-hours 24
+```
+
+Exit `0` when the newest write-back in the estate is inside the window:
+
+```
+[OK] Rail monitor is live: newest write-back 2026-08-03T19:56:16.154344+00:00 (0.0h ago, limit 24h) on urn:li:dataset:(urn:li:dataPlatform:postgres,demo.public.events,PROD)
+```
+
+Exit `1`, loudly, when it is not — naming the last run and the command that
+restarts it:
+
+```
+[ALARM] MONITOR IS DEAD: newest write-back 2026-07-25T19:55:51.306437+00:00 (216.0h ago, limit 24h) on urn:li:dataset:(urn:li:dataPlatform:postgres,demo.public.events,PROD).
+        Nothing has written a verdict into DataHub since then — the agent is not running, not that the estate is healthy.
+        Re-run: python -m datahub_rail.agent --config config/probes.yaml --writeback
+```
+
+An estate with no rail markers at all also exits `1` — "no evidence" is a
+blind state, not a passing one. Put the command in the same cron or CI job
+that runs the agent, one entry later, and a dead rail becomes a red build
+instead of a quiet week.
+
 ## Probes Engine
 
 The health monitor runs three probe classes:
@@ -335,6 +366,32 @@ read, and each report ends with a provenance table naming the tool, entity
 and timestamp of every read behind it. Nothing in the evidence is generated
 text.
 
+### Producer healthy, delivery broken
+
+A stale dataset whose immediate upstreams are all *fresh* is a different
+fault from a stale dataset behind a stalled pipeline: the producer ran, the
+output never arrived, and the break sits on the edge between them. When the
+graph shows that shape the report leads with an explicit callout, both
+capture timestamps side by side, before the root-cause candidate it
+corrects:
+
+```markdown
+### Producer Healthy, Delivery Broken
+**ops.db.schedule_events** is 16h old against a 6h SLA, but every immediate upstream is inside SLA. The producer ran; the output did not arrive.
+
+| Node | Role | Last capture (graph) |
+|---|---|---|
+| `ops.db.schedule_events` | failing output | 2026-08-03 04:14 UTC (0 days old) — 16h old |
+| `ops.db.interactions` | immediate upstream | 2026-08-03 16:38 UTC (0 days old) — 3h old |
+
+The newest upstream moved 12h more recently than this output changed. The break is on the edge between them — a missing config file, an unmet prerequisite, or an expired credential — not the scheduler and not the producing job, whose run history will read green throughout.
+```
+
+If any immediate upstream is stale too, no callout is emitted: there the
+upstream really is a suspect and the ordinary root-cause walk stands. The
+extra freshness reads only happen for a dataset already past SLA, so runs
+without the fault make exactly the graph calls they made before.
+
 ## How DataHub Is Read
 
 Graph reads go through the DataHub MCP Server (v3.4.5), using the tools it
@@ -377,7 +434,7 @@ deliberate faults plus healthy controls.
 
 ```bash
 pip install -e ".[dev]" -c constraints.txt
-python -m pytest tests/ -q     # 158 tests
+python -m pytest tests/ -q     # 220 tests, network-blocked
 ruff check src/ tests/         # ruff 0.16.1
 ```
 
@@ -399,6 +456,20 @@ The design applies a capture-reliability doctrine battle-tested in a private
 ops system (capture-based liveness, fail-loud on outage, freshness verified
 before reporting state). All code in this repository is newly written during
 the submission period.
+
+## Failure modes from our own estate
+
+Every row below is a fault that actually ran in our production ops system,
+and the behaviour this agent has because of it. None of them were caught by
+a threshold or a dashboard; each one was invisible until something downstream
+was already lost.
+
+| Failure mode | What happened | What the agent does about it |
+|---|---|---|
+| Silent capture outage | An ingest feed captured nothing for 24 days behind a green heartbeat. The job started on schedule, exited zero and wrote no rows, so every status surface read healthy while the data stopped. | Freshness is capture-based: each probe measures a dataset's own `lastModified` and never a job's exit status. A feed that runs and writes nothing fails the probe on the next pass. |
+| Producer green, deliverable dead | A daily deliverable stopped arriving for nine days while the pipeline producing it ran green every night. The operator watched the producer, saw healthy runs, and spent a week diagnosing the scheduler; the break was a missing config file on the delivery step. | Triage compares the failing dataset's capture time against its immediate upstreams'. Stale output behind fresh producers gets the "Producer Healthy, Delivery Broken" callout, both timestamps shown, pointing at the edge instead of the job. |
+| Silently dead watcher | A scheduled watcher stopped producing check runs entirely and nothing said so. An absence of output is indistinguishable from a quiet week, so the monitor's own death was the one failure the monitor could not report. | `check-monitor` exits non-zero when the newest `rail.last_run` stamp in the graph is older than a given window, or when there is no stamp at all. Liveness is judged from what the agent actually wrote, so a dead rail is one command away from a red build. |
+| Fail-soft handler hiding a broken test | A test asserted that a write-back happened, but the code under test opened a connection first inside a fail-soft `try`. On a developer machine with DataHub running that connect succeeded and the test passed; in CI, with nothing listening, the swallowed exception skipped the assertion and the test failed. | The suite blocks sockets for every test, with an explicit `allow_network` marker as the only escape hatch. A canary test asserts the block is live — including a real `aiohttp` call to the quickstart URL — so a guard that quietly stopped working cannot pass as a green suite. |
 
 ## Doctrine & Inspiration
 

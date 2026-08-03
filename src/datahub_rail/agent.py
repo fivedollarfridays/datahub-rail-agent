@@ -20,6 +20,7 @@ from typing import Optional
 
 import yaml
 
+from . import monitor
 from .drift_artifacts import DriftArtifactGenerator
 from .graph import GraphClient
 from .probes import ProbeRegistry
@@ -48,6 +49,14 @@ def _select_probes(config: dict, dataset_urn: str) -> dict:
     return {"probes": probes}
 
 
+def freshness_sla_hours(config: dict, default: int = 24) -> int:
+    """SLA the estate's freshness probe enforces; triage reuses it for staleness."""
+    for probe in config.get("probes", []):
+        if probe.get("type") == "freshness":
+            return int((probe.get("params") or {}).get("sla_hours", default))
+    return default
+
+
 async def _probe_dataset(graph, config: dict, dataset) -> dict:
     """Run every applicable probe against one dataset."""
     registry = ProbeRegistry(_select_probes(config, dataset.urn))
@@ -71,7 +80,9 @@ def _format_line(entry: dict) -> str:
     return f"[FAIL] {entry['name']} — {first[0]}: {first[1].message}"
 
 
-async def _write_incident(graph, engine, entry: dict, outbox: Path) -> None:
+async def _write_incident(
+    graph, engine, entry: dict, outbox: Path, sla_hours: int = 24
+) -> None:
     """Generate the owner-addressed incident report for a failing dataset."""
     probe_name, result = next(iter(entry["failures"].items()))
     entity = await graph.get_entity(entry["urn"])
@@ -85,6 +96,7 @@ async def _write_incident(graph, engine, entry: dict, outbox: Path) -> None:
         probe_message=result.message,
         outbox_dir=outbox,
         provenance=graph.provenance_for(entry["urn"]),
+        sla_hours=sla_hours,
     )
 
 
@@ -154,7 +166,7 @@ async def execute(
     for entry in entries:
         if entry["status"] != "fail":
             continue
-        await _write_incident(graph, engine, entry, outbox)
+        await _write_incident(graph, engine, entry, outbox, freshness_sla_hours(config))
         artifacts = await _write_drift_artifacts(graph, config, entry, outbox) or artifacts
 
     digest = StateDigest(history_path).render()
@@ -237,7 +249,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    """CLI entrypoint."""
+    """CLI entrypoint. A leading ``check-monitor`` runs the liveness check.
+
+    The verb is dispatched before argument parsing so the default demo
+    invocation parses exactly the flags it always did.
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == monitor.VERB:
+        return monitor.main(argv[1:])
+
     args = build_parser().parse_args(argv)
     return asyncio.run(run(args))
 

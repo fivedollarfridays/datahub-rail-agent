@@ -70,6 +70,48 @@ class GMSReader:
             expected_frequency=0,
         )
 
+    async def scroll_datasets(
+        self,
+        aspects: list[str],
+        count: int = 100,
+        max_pages: int = 50,
+    ) -> list[dict]:
+        """Page through every dataset entity, returning the requested aspects.
+
+        ``datasetKey`` is always requested: on DataHub 1.5 a scroll asking
+        only for a sparse aspect returns an empty ``entities`` list despite a
+        non-zero ``totalCount``. A page that comes back empty ends the walk,
+        so an error response cannot spin.
+        """
+        if not self.session:
+            await self.connect()
+
+        wanted = ["datasetKey"] + [a for a in aspects if a != "datasetKey"]
+        query = "&".join(f"aspects={a}" for a in wanted)
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+
+        entities: list[dict] = []
+        scroll_id: Optional[str] = None
+        for _ in range(max_pages):
+            url = f"{self.gms_url}/openapi/v3/entity/dataset?count={count}&{query}"
+            if scroll_id:
+                url = f"{url}&scrollId={quote(scroll_id, safe='')}"
+            async with self.session.get(url, headers=headers) as resp:
+                if resp.status >= 400:
+                    return entities
+                try:
+                    page = await resp.json()
+                except Exception:
+                    return entities
+
+            batch = page.get("entities") or []
+            entities.extend(batch)
+            scroll_id = page.get("scrollId")
+            if not batch or not scroll_id:
+                return entities
+
+        return entities
+
     async def get_declared_upstreams(self, dataset_urn: str) -> list[str]:
         """Read declared upstream edge targets from the upstreamLineage aspect."""
         entity = await self._get_entity(dataset_urn)
