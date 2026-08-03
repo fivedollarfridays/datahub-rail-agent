@@ -43,13 +43,17 @@ For schema-contract violations, the agent emits PR-ready artifacts:
 - **Unified diff** — Computed with difflib against the committed downstream contract (`contracts/transactions_warehouse.schema.yaml`), so `git apply` accepts it; the test suite applies it for real on every run
 - **Commit message** — Structured message linking fault class, detection method, owner
 
+### Write-Back: Findings Live in the Graph
+
+Opt in with `--writeback` and the agent publishes each verdict back onto the dataset in DataHub — a searchable `rail.status.*` tag plus structured properties carrying the delta-aware verdict, the probe, the run timestamp and the incident-report pointer — so any other MCP-reading agent inherits rail's health context instead of re-deriving it.
+
 ## Tech Stack
 
 - **Language:** Python 3.11+
 - **DataHub Integration:** DataHub MCP Server (Model Context Protocol)
 - **Data Structures:** Python dataclasses for typed graph entities; JSONL for state history
 - **Storage:** Local outbox/ directory for incidents and artifacts
-- **Testing:** pytest (131 tests, 85% line coverage) with recorded-response fixtures; ruff 0.16.1 and the full suite run in GitHub Actions
+- **Testing:** pytest (158 tests, 89% line coverage) with recorded-response fixtures; ruff 0.16.1 and the full suite run in GitHub Actions
 
 ## DataHub Surfaces Used
 
@@ -58,6 +62,7 @@ For schema-contract violations, the agent emits PR-ready artifacts:
 3. **Metadata Ingestion** — Seeder writes datasets, schemas, ownership and lineage through the OpenAPI v3 entity endpoint, failing loud on any non-2xx or error body
 4. **Lineage Navigation** — BFS graph walk to identify root-cause candidates
 5. **Owner Information** — Read from the ownership aspect for @mentions in incident reports
+6. **Metadata Write-Back via OpenAPI v3 (opt-in)** — The agent publishes its verdicts back onto the datasets: a bounded `rail.status.*` tag on the `globalTags` aspect (searchable, rendered as a chip on the dataset page) and four `structuredProperties` carrying the delta-aware verdict, probe, run timestamp and incident-report pointer. Both aspects are read-merged so rail replaces only its own markers
 
 ## Demo
 
@@ -85,7 +90,7 @@ This directly addresses the capture-reliability doctrine: *fail loud on outage, 
 
 ## Code Quality
 
-- **131 tests, 85% line coverage**, including tests that apply the generated patch with `git apply`
+- **158 tests, 89% line coverage**, including tests that apply the generated patch with `git apply`
 - **Never-raise contract** enforced throughout: no silent passes on reads, and loud failures on writes
 - **TDD throughout** — all features written test-first
 - **Architecture enforced** — file and function size limits checked in CI

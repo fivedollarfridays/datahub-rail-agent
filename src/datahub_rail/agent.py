@@ -6,10 +6,15 @@
 Each run probes every discovered dataset, appends results to the state
 history, renders the delta-aware digest (NEW / CHRONIC day N / RECOVERED),
 and writes incident reports plus schema-drift fix artifacts to the outbox.
+
+Passing ``--writeback`` additionally publishes each verdict back onto the
+dataset in DataHub. It is off by default: the default run is unchanged.
 """
 import argparse
 import asyncio
+import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +25,9 @@ from .graph import GraphClient
 from .probes import ProbeRegistry
 from .state_history import StateDigest, StateHistory
 from .triage import TriageEngine
+from .writeback import DataHubWriteBack, publish_run
+
+logger = logging.getLogger(__name__)
 
 
 def load_config(path: Path | str) -> dict:
@@ -159,6 +167,34 @@ async def execute(
     }
 
 
+async def _publish_writeback(args: argparse.Namespace, report: dict) -> None:
+    """Publish verdicts back into DataHub. Opt-in, and never fatal to the run."""
+    writer = DataHubWriteBack(gms_url=args.datahub_url, token=args.token)
+    try:
+        await writer.connect()
+        await writer.ensure_schema()
+        counts = await publish_run(
+            report,
+            history_path=args.history,
+            outbox=args.outbox,
+            writer=writer,
+            run_timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        print(
+            f"\n[INFO] Write-back: {counts['written']} dataset(s) updated in DataHub"
+            f" ({counts['failed']} failed, {counts['skipped']} skipped)"
+        )
+    except Exception as exc:
+        logger.error("WRITE-BACK FAILED: %s", exc)
+        print(
+            f"\n[ERROR] WRITE-BACK FAILED: {exc}"
+            " — probe results above are unaffected.",
+            file=sys.stderr,
+        )
+    finally:
+        await writer.disconnect()
+
+
 async def run(args: argparse.Namespace) -> int:
     """Wire a live graph client and execute one run."""
     config = load_config(args.config)
@@ -177,18 +213,32 @@ async def run(args: argparse.Namespace) -> int:
     print(report["digest"] or "(no history yet)")
     print(f"\n[INFO] Incident reports and fix artifacts: {args.outbox}/")
     print(f"[INFO] State history: {args.history}")
+
+    if getattr(args, "writeback", False):
+        await _publish_writeback(args, report)
+
     return report["exit_code"]
 
 
-def main(argv: Optional[list[str]] = None) -> int:
-    """CLI entrypoint."""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(prog="python -m datahub_rail.agent")
     parser.add_argument("--config", default="config/probes.yaml", help="probe registry YAML")
     parser.add_argument("--datahub-url", default="http://localhost:8080", help="GMS base URL")
     parser.add_argument("--token", default="", help="DataHub token (empty for local quickstart)")
     parser.add_argument("--outbox", default="outbox", help="directory for reports and artifacts")
     parser.add_argument("--history", default="state_history.jsonl", help="state history JSONL")
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--writeback",
+        action="store_true",
+        help="publish probe verdicts back onto the datasets in DataHub (opt-in)",
+    )
+    return parser
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    """CLI entrypoint."""
+    args = build_parser().parse_args(argv)
     return asyncio.run(run(args))
 
 
