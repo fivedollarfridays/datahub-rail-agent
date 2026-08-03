@@ -213,6 +213,54 @@ git apply --check outbox/schema_drift_transactions_warehouse.diff   # exits 0
 `sample-outputs/` holds the artifacts from a real two-run pass against the
 seeded estate, regenerated with `python scripts/refresh_sample_outputs.py`.
 
+## Write-back: findings live in the graph
+
+Everything above ends in a file on your disk. Write-back closes the loop and
+puts the verdict back on the dataset itself, where the rest of the catalog can
+see it. It is **opt-in** — add `--writeback`:
+
+```bash
+python -m datahub_rail.agent --writeback
+```
+
+Each probed dataset gets two markers, both visible on its DataHub page:
+
+- a **`rail.status.*` tag** (`PASS` / `NEW-FAIL` / `CHRONIC` / `RECOVERED`) —
+  a bounded, searchable set, so "show me everything chronically failing"
+  becomes a catalog facet query rather than a log grep;
+- four **structured properties** carrying the detail: the full delta-aware
+  verdict (`CHRONIC-day-2`), the probe that judged it, the run timestamp, and
+  the incident-report filename when one was written.
+
+![Write-back markers on a dataset page](docs/img/writeback-ui.png)
+
+*`orders_archive` after two runs: the `rail.status.CHRONIC` tag in the sidebar,
+and the `rail` property group showing `CHRONIC-day-2`, the `freshness` probe,
+the run timestamp, and a pointer to `incident_orders_archive_*.md`.*
+
+**Why this matters:** the agent stops being a tool you run and becomes context
+other agents inherit. Any MCP-reading agent that already calls `get_entities`
+or `search` now sees rail's health verdict on the assets it was going to touch
+anyway — a query agent can refuse to answer off a `CHRONIC` table, and a
+migration agent can see which upstreams are mid-incident, without either one
+knowing this project exists.
+
+Both aspects are read-merged before writing: rail replaces only its own
+markers, so tags and properties set by humans or other tools survive, and a
+`RECOVERED` dataset drops its stale incident pointer instead of stacking
+markers forever. Repeat runs are idempotent. Write-back is fail-soft — if GMS
+is unreachable the failure is logged loudly and the probe run still completes,
+because the probe run is the product.
+
+Verify it end-to-end against your quickstart:
+
+```bash
+python scripts/writeback_smoke.py
+```
+
+That runs the agent twice, reads the markers back out of GMS, and checks each
+dataset carries exactly one rail tag and a readable verdict.
+
 ## Probes Engine
 
 The health monitor runs three probe classes:
@@ -329,7 +377,7 @@ deliberate faults plus healthy controls.
 
 ```bash
 pip install -e ".[dev]" -c constraints.txt
-python -m pytest tests/ -q     # 131 tests
+python -m pytest tests/ -q     # 158 tests
 ruff check src/ tests/         # ruff 0.16.1
 ```
 
