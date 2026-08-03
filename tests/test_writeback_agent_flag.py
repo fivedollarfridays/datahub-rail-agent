@@ -28,6 +28,19 @@ class _StubGraph:
         return None
 
 
+class _StubWriter:
+    """Stands in for DataHubWriteBack so no test ever needs a live GMS."""
+
+    async def connect(self):
+        return None
+
+    async def ensure_schema(self):
+        return None
+
+    async def disconnect(self):
+        return None
+
+
 def _patched_run(tmp_path, args):
     """Patch the graph and execute() so run() is exercised in isolation."""
     report = {
@@ -81,7 +94,11 @@ async def test_opt_in_run_publishes_verdicts(tmp_path):
     with graph_patch, exec_patch, patch.object(
         agent, "publish_run", AsyncMock(return_value=counts)
     ) as publish:
-        with patch.object(agent, "load_config", return_value={"probes": []}):
+        # Stub the writer too: without this the test passes only on a machine
+        # that happens to have GMS running, and fail-soft hides the difference.
+        with patch.object(agent, "load_config", return_value={"probes": []}), patch.object(
+            agent, "DataHubWriteBack", return_value=_StubWriter()
+        ):
             code = await agent.run(args)
 
     publish.assert_called_once()
