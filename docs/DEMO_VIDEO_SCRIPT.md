@@ -12,6 +12,18 @@ real output. A copy/paste-ready ordering is in
 **Before recording:** have DataHub already running and the estate seeded, and
 delete `state_history.jsonl` so the first take is a clean day 1.
 
+**Two on-camera traps, both verified live:**
+
+1. **Do not put `2>/dev/null` on `check-monitor`.** It prints
+   `[ALARM] MONITOR IS DEAD` to **stderr** (`monitor.py:198`), so the habitual
+   clean-take idiom silently swallows the entire failure case and you film a
+   blank screen. The `2>/dev/null` on the agent runs is fine; on this one command
+   it is not.
+2. **Watch the day counter.** The digest prints `(day N)` counting runs since the
+   last `rm state_history.jsonl`, not calendar days. If the write-back beat is
+   your third take, the screen reads `(day 3)` seconds after the narration says
+   "day 2". Reset the history or plan the take order.
+
 ---
 
 ## Scene 1: The Problem (0:00–0:20)
@@ -100,13 +112,17 @@ launches the DataHub MCP server itself."
 
 - **1:00–1:05:** The digest below it, on first sight of each fault
 
-  **PRODUCTION NOTE:** the real day-1 digest prints a
-  `--- Delta-aware state digest ---` header plus 11 lines, with `PASS:` lines
-  interleaved between the `NEW:` lines. Only day 2 is naturally clean, because
-  only *changed* states print. To make the screen match the three lines below,
-  filter the run on camera with `| grep -E '^\[|^NEW'` (that keeps both the
-  probe lines above and the NEW lines here). Otherwise reword the beat, because
-  narrating "three NEW lines" over eleven lines of output reads badly.
+  **PRODUCTION NOTE — DO NOT FILTER THIS.** The real day-1 digest prints a
+  `--- Delta-aware state digest ---` header plus **11 lines**, with `PASS:` rows
+  interleaved between the `NEW:` rows. Day 2 prints **exactly 3** `CHRONIC` lines
+  and zero `PASS` rows, because only *changed* states print.
+
+  That 11-to-3 collapse between Scene 3 and Scene 4 IS the delta-aware story,
+  told visually and for free. Piping it through `grep` to match the three-line
+  excerpt below throws away the best shot in the demo, and a filter in front of
+  a skeptical judge reads as hiding output. Show the full 11 lines here and let
+  Scene 4's 3 lines land the point. The block below is an excerpt for reading,
+  not a target for the screen.
 
   ```
   NEW: ...demo.public.events,PROD) / lineage_integrity — Broken lineage: declared upstream 'raw_events_old' missing from the graph
