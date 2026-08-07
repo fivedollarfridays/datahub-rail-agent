@@ -2,7 +2,7 @@
 
 Copy/paste-ready commands in the order they need to run, for recording the
 demo video. Verified end to end on macOS (Apple Silicon) against DataHub
-quickstart v1.5.0.6 with mcp-server-datahub v3.4.5.
+quickstart v1.7.0 with mcp-server-datahub v3.4.6.
 
 The narrative version with timings is in
 [DEMO_VIDEO_SCRIPT.md](DEMO_VIDEO_SCRIPT.md).
@@ -54,7 +54,7 @@ DATAHUB_GMS_URL=http://localhost:8080 DATAHUB_GMS_TOKEN= \
   python scripts/mcp_smoke.py
 ```
 
-Expect `initialize OK: server=datahub v3.4.5` and `tools/list OK: 6 tools`.
+Expect `initialize OK: server=datahub v3.4.6` and `tools/list OK: 6 tools`.
 
 ## 3. Reset to a clean day 1 (before every take)
 
@@ -174,7 +174,7 @@ Restore the fault afterwards with `python scripts/seed_demo_estate.py`.
 
 ```bash
 ls sample-outputs/
-python -m pytest tests/ -q | tail -1     # 131 passed
+python -m pytest tests/ -q | tail -1     # 220 passed
 ```
 
 ---

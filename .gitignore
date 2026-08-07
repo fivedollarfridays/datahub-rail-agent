@@ -1,11 +1,17 @@
 .dhenv/
 __pycache__/
 
+# PairCoder -- preserved (no longer in the managed set; still ignored)
+.paircoder/feedback/calibration.json
+
 # >>> paircoder managed
+.claude/settings.local.json
 .paircoder/.cli_version
 .paircoder/cache/**
-.paircoder/feedback/calibration.json
+.paircoder/feedback/**
 .paircoder/history/benchmarks/matrix/**
+.paircoder/hooks/**
+.paircoder/reviews/**
 .paircoder/telemetry/**
 # <<< paircoder managed
 
@@ -18,3 +24,5 @@ __pycache__/
 outbox/
 state_history.jsonl
 .writeback-smoke/
+
+.coverage
