@@ -26,3 +26,7 @@ state_history.jsonl
 .writeback-smoke/
 
 .coverage
+
+# bpsai-pair payload regenerates this; a former employer's internal
+# board conventions must never re-enter this public repo.
+.claude/skills/managing-task-lifecycle/reference/bps-trello-conventions.md
