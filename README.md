@@ -4,8 +4,6 @@ A data-rail health monitor agent for DataHub's context graph. It runs capture-ba
 
 ## Judges start here
 
-**Demo video (2:19):** <!-- VIDEO_URL -->
-
 **What this is beyond what DataHub already ships.** DataHub Cloud Observe
 provides freshness, volume and schema assertions with anomaly detection, and
 this project does not pretend otherwise. But **Observe is Cloud-gated.**
